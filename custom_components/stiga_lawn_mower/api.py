@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import math
 import os
@@ -64,9 +65,11 @@ from .const import (
 )
 from .protobuf import (
     decode_protobuf,
+    decode_protobuf_repeated,
     encode_protobuf,
     encode_robot_command,
     encode_status_request_fields,
+    patch_zone_cutting_mode,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -221,6 +224,14 @@ class StigaRobotPosition:
 
 
 @dataclass
+class StigaZoneInfo:
+    """Per-zone data from REST GET /api/perimeters data_points blob."""
+    id: int
+    name: str
+    cutting_mode: int  # 0=denseGrid, 1=chessBoard, 5=northSouth, 6=eastWest
+
+
+@dataclass
 class StigaGardenInfo:
     """Garden layout summary from REST GET /api/perimeters."""
     total_area_m2: float | None = None
@@ -228,6 +239,7 @@ class StigaGardenInfo:
     zones_area_m2: float | None = None
     obstacles_count: int | None = None
     obstacles_area_m2: float | None = None
+    zones: list = field(default_factory=list)  # list[StigaZoneInfo]
 
 
 def _fixed64_to_double(val: int) -> float:
@@ -312,11 +324,13 @@ class StigaRestClient:
         url = f"{STIGA_API_BASE_URL}{path}"
         async with aiohttp.ClientSession() as session:
             async with session.request(method, url, headers=headers, **kwargs) as resp:
-                if resp.status not in (200, 201):
+                if resp.status not in (200, 201, 204):
                     body = await resp.text()
                     raise StigaAPIError(
                         f"API request failed ({resp.status}): {body}"
                     )
+                if resp.status == 204:
+                    return {}
                 return await resp.json()
 
     async def get_user(self) -> dict:
@@ -349,29 +363,105 @@ class StigaRestClient:
             devices.append(device)
         return devices
 
-    async def get_perimeters(self, device: StigaDevice) -> StigaGardenInfo:
-        """Fetch garden layout summary (area, zones, obstacles) from REST API."""
+    async def get_perimeters(self, device: StigaDevice) -> tuple[StigaGardenInfo, dict | None]:
+        """Fetch garden layout and raw attributes (needed for later PATCH calls)."""
         if not device.uuid or not device.base_uuid:
             _LOGGER.debug("Skipping perimeter fetch: device missing uuid or base_uuid")
-            return StigaGardenInfo()
+            return StigaGardenInfo(), None
         data = await self._request(
             "GET", "/api/perimeters",
             params={"base_uuid": device.base_uuid, "device_uuid": device.uuid},
         )
         try:
-            preview = (data["data"]["attributes"].get("preview") or {})
-            zones = preview.get("zones") or {}
-            obstacles = preview.get("obstacles") or {}
-            return StigaGardenInfo(
+            attrs = data["data"]["attributes"]
+            preview = attrs.get("preview") or {}
+            zones_summary = preview.get("zones") or {}
+            obstacles_summary = preview.get("obstacles") or {}
+
+            zones: list[StigaZoneInfo] = []
+            dp_data = (attrs.get("data_points") or {}).get("data")
+            if isinstance(dp_data, list) and dp_data:
+                try:
+                    outer = decode_protobuf_repeated(bytes(dp_data))
+                    for zone_bytes in outer.get(1, []):
+                        if not isinstance(zone_bytes, bytes):
+                            continue
+                        zf = decode_protobuf(zone_bytes)
+                        zone_id = zf.get(1)
+                        if not isinstance(zone_id, int):
+                            continue
+                        raw_name = zf.get(15)
+                        if isinstance(raw_name, bytes):
+                            try:
+                                name = raw_name.decode("utf-8").strip("\x00") or f"Zone {zone_id}"
+                            except UnicodeDecodeError:
+                                name = f"Zone {zone_id}"
+                        else:
+                            name = f"Zone {zone_id}"
+                        cutting_mode = zf.get(8, 0)
+                        zones.append(StigaZoneInfo(
+                            id=zone_id,
+                            name=name,
+                            cutting_mode=int(cutting_mode) if isinstance(cutting_mode, int) else 0,
+                        ))
+                    zones.sort(key=lambda z: z.id)
+                except Exception as exc:
+                    _LOGGER.debug("Failed to parse zone settings from data_points: %s", exc)
+
+            garden_info = StigaGardenInfo(
                 total_area_m2=preview.get("m2Area"),
-                zones_count=zones.get("num"),
-                zones_area_m2=zones.get("m2Area"),
-                obstacles_count=obstacles.get("num"),
-                obstacles_area_m2=obstacles.get("m2Area"),
+                zones_count=zones_summary.get("num"),
+                zones_area_m2=zones_summary.get("m2Area"),
+                obstacles_count=obstacles_summary.get("num"),
+                obstacles_area_m2=obstacles_summary.get("m2Area"),
+                zones=zones,
             )
+            _LOGGER.debug(
+                "Perimeters: area=%s m², zones=%s (%s with settings), obstacles=%s",
+                garden_info.total_area_m2,
+                garden_info.zones_count,
+                len(zones),
+                garden_info.obstacles_count,
+            )
+            return garden_info, attrs
         except (KeyError, TypeError) as exc:
             _LOGGER.debug("Failed to parse perimeter response: %s", exc)
-            return StigaGardenInfo()
+            return StigaGardenInfo(), None
+
+    async def patch_perimeter_cutting_mode(
+        self,
+        perimeter_attrs: dict,
+        zone_id: int,
+        mode_value: int,
+    ) -> dict:
+        """Patch cuttingMode for one zone, PATCH to cloud, return updated attributes."""
+        attrs = copy.deepcopy(perimeter_attrs)
+
+        dp = attrs.get("data_points") or {}
+        raw_data = dp.get("data")
+        if not isinstance(raw_data, list) or not raw_data:
+            raise StigaAPIError("Perimeter data_points.data missing or invalid")
+
+        dp["data"] = patch_zone_cutting_mode(raw_data, zone_id, mode_value)
+        attrs["data_points"] = dp
+
+        now_ms = int(time.time() * 1000)
+        now_str = str(now_ms)
+        for section_key in ("preview", "data_points"):
+            section = attrs.get(section_key)
+            if isinstance(section, dict):
+                section["timestamp"] = now_ms
+                section["checksum"] = now_str
+
+        attrs = {k: v for k, v in attrs.items() if v is not None}
+
+        uuid = attrs.get("uuid")
+        if not uuid:
+            raise StigaAPIError("Perimeter attributes missing uuid")
+
+        await self._request("PATCH", f"/api/perimeters/{uuid}", json={"data": attrs})
+        _LOGGER.debug("Patched cuttingMode zone=%s mode=%s perimeter=%s", zone_id, mode_value, uuid)
+        return attrs
 
 
 class StigaMQTTClient:

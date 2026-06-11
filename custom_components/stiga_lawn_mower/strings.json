@@ -100,7 +100,8 @@
       "cutting_height_ctrl": { "name": "Cutting Height" }
     },
     "select": {
-      "rain_delay": { "name": "Rain Delay" }
+      "rain_delay": { "name": "Rain Delay" },
+      "cutting_mode": { "name": "Cutting Mode" }
     },
     "button": {
       "calibrate_blades": { "name": "Calibrate Blades" },

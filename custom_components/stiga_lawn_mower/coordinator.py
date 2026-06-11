@@ -8,7 +8,7 @@ from datetime import timedelta
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .api import StigaAuth, StigaDevice, StigaDeviceStatus, StigaGardenInfo, StigaMQTTClient, StigaRestClient, StigaRobotPosition, StigaRobotSchedule, StigaRobotSettings
+from .api import StigaAuth, StigaAPIError, StigaDevice, StigaDeviceStatus, StigaGardenInfo, StigaMQTTClient, StigaRestClient, StigaRobotPosition, StigaRobotSchedule, StigaRobotSettings
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,6 +39,7 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         self._base_latitude = base_latitude
         self._base_longitude = base_longitude
         self._garden_info: StigaGardenInfo | None = None
+        self._perimeter_raw: dict | None = None
         self._shutdown = False
         self._retry_task: asyncio.Task | None = None
 
@@ -78,13 +79,7 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         self._mqtt.add_position_callback(self._on_mqtt_position)
         await self._try_connect_mqtt()
         try:
-            self._garden_info = await self._rest.get_perimeters(self.device)
-            _LOGGER.debug(
-                "Garden perimeters: area=%s m², zones=%s, obstacles=%s",
-                self._garden_info.total_area_m2,
-                self._garden_info.zones_count,
-                self._garden_info.obstacles_count,
-            )
+            self._garden_info, self._perimeter_raw = await self._rest.get_perimeters(self.device)
         except Exception as exc:
             _LOGGER.debug("Failed to fetch garden perimeters: %s", exc)
 
@@ -152,6 +147,20 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         await self._mqtt.send_schedule_update(schedule)
         await asyncio.sleep(0.3)
         await self._mqtt.request_schedule()
+
+    async def async_set_cutting_mode(self, zone_id: int, mode_value: int) -> None:
+        """Patch cuttingMode for one zone via REST PATCH /api/perimeters."""
+        if self._perimeter_raw is None:
+            raise StigaAPIError("Perimeter data not loaded — reload the integration first")
+        self._perimeter_raw = await self._rest.patch_perimeter_cutting_mode(
+            self._perimeter_raw, zone_id, mode_value
+        )
+        if self._garden_info:
+            for zone in self._garden_info.zones:
+                if zone.id == zone_id:
+                    zone.cutting_mode = mode_value
+                    break
+        self.async_set_updated_data(self._mqtt.status)
 
     async def _async_update_data(self) -> StigaDeviceStatus:
         """Request fresh status and position via MQTT; return last known state."""

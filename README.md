@@ -126,11 +126,12 @@ All Stiga robots controllable via the **STIGA.GO app**:
 | Smart Cutting Height | Automatic height adjustment |
 | Long Exit | Extended exit from charging station |
 
-### Select Entity (Configuration)
+### Select Entities (Configuration)
 
-| Select | Options |
-|---|---|
-| Rain Delay | 4 h, 8 h, 12 h |
+| Select | Options | Notes |
+|---|---|---|
+| Rain Delay | 4 h / 8 h / 12 h | Delay before mowing resumes after rain |
+| Cutting Mode | Dense Grid / Chess Board / North-South / East-West | Per mowing zone — one entity per zone |
 
 ### Button Entities (Diagnostic)
 
@@ -244,6 +245,30 @@ Shows the time remaining until the next scheduled mowing.
 1. Click on an existing event in the Calendar view.
 2. Click the **Delete** button.
 3. The updated schedule is sent to the robot immediately.
+
+---
+
+### Cutting Mode
+
+Each mowing zone has its own **Cutting Mode** select entity that controls the pattern the robot uses when mowing that zone.
+
+| Mode | Description |
+|---|---|
+| **Dense Grid** | Tight parallel passes — thorough, uniform cut (default) |
+| **Chess Board** | Alternating perpendicular passes — decorative chess-board lawn pattern |
+| **North-South** | Parallel passes aligned north–south |
+| **East-West** | Parallel passes aligned east–west |
+
+**Entity naming:**
+
+| Scenario | Entity name |
+|---|---|
+| Single zone | `select.<robot>_cutting_mode` |
+| Multiple zones | `select.<robot>_zone_1_cutting_mode`, `select.<robot>_zone_2_cutting_mode`, … |
+
+**How it works:** The mode is stored in the Stiga cloud as part of the garden map (REST `/api/perimeters`). Changing the selection patches only the affected zone's bytes in the protobuf blob and sends a PATCH request to the cloud. The robot picks up the new mode on its next mowing session.
+
+The cutting mode entities are created at integration load time based on the zones found in the garden map. If you remap your garden in the STIGA.GO app, reload the integration to refresh the zone list.
 
 ---
 

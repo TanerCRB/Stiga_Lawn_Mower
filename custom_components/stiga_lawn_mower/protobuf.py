@@ -76,6 +76,131 @@ def encode_protobuf(fields: dict) -> bytes:
     return result
 
 
+def decode_protobuf_repeated(data: bytes) -> dict[int, list]:
+    """Decode a protobuf message collecting repeated fields as lists."""
+    fields: dict[int, list] = {}
+    pos = 0
+    while pos < len(data):
+        tag, pos = _decode_varint(data, pos)
+        field_number = tag >> 3
+        wire_type = tag & 0x7
+        if wire_type == 0:
+            value, pos = _decode_varint(data, pos)
+            fields.setdefault(field_number, []).append(value)
+        elif wire_type == 2:
+            length, pos = _decode_varint(data, pos)
+            if pos + length > len(data):
+                break
+            fields.setdefault(field_number, []).append(data[pos : pos + length])
+            pos += length
+        elif wire_type == 1:
+            if pos + 8 > len(data):
+                break
+            fields.setdefault(field_number, []).append(
+                int.from_bytes(data[pos : pos + 8], "little")
+            )
+            pos += 8
+        elif wire_type == 5:
+            if pos + 4 > len(data):
+                break
+            fields.setdefault(field_number, []).append(
+                int.from_bytes(data[pos : pos + 4], "little")
+            )
+            pos += 4
+        else:
+            break
+    return fields
+
+
+def _set_varint_in_submessage(data: bytes, field_num: int, value: int) -> bytes:
+    """Replace or append a varint field within protobuf sub-message bytes."""
+    parts: list[bytes] = []
+    pos = 0
+    replaced = False
+    while pos < len(data):
+        tag_start = pos
+        tag, pos = _decode_varint(data, pos)
+        fn = tag >> 3
+        wt = tag & 0x7
+        if wt == 0:
+            _, pos = _decode_varint(data, pos)
+            if fn == field_num and not replaced:
+                parts.append(_encode_varint_field(field_num, value))
+                replaced = True
+            else:
+                parts.append(data[tag_start:pos])
+        elif wt == 2:
+            length, pos = _decode_varint(data, pos)
+            end = pos + length
+            parts.append(data[tag_start:end])
+            pos = end
+        elif wt == 1:
+            parts.append(data[tag_start : pos + 8])
+            pos += 8
+        elif wt == 5:
+            parts.append(data[tag_start : pos + 4])
+            pos += 4
+        else:
+            parts.append(data[tag_start:])
+            break
+    if not replaced:
+        parts.append(_encode_varint_field(field_num, value))
+    return b"".join(parts)
+
+
+def patch_zone_cutting_mode(data: list[int], zone_id: int, mode_value: int) -> list[int]:
+    """Patch cuttingMode (field 8) for zone_id in a data_points.data byte list.
+
+    Outer layout: field 1 = repeated zone sub-messages.
+    Each sub-message: field 1 = zone id (varint), field 8 = cuttingMode (varint).
+    All other bytes are copied verbatim.
+    """
+    buf = bytes(data)
+    out: list[bytes] = []
+    pos = 0
+    found = False
+    while pos < len(buf):
+        tag_start = pos
+        tag, pos = _decode_varint(buf, pos)
+        fn = tag >> 3
+        wt = tag & 0x7
+        if wt == 2:
+            length, pos = _decode_varint(buf, pos)
+            val_end = pos + length
+            sub = buf[pos:val_end]
+            if fn == 1 and not found:
+                sub_fields = decode_protobuf(sub)
+                if sub_fields.get(1) == zone_id:
+                    new_sub = _set_varint_in_submessage(sub, 8, mode_value)
+                    out.append(_encode_varint((fn << 3) | 2))
+                    out.append(_encode_varint(len(new_sub)))
+                    out.append(new_sub)
+                    pos = val_end
+                    found = True
+                    continue
+            out.append(buf[tag_start:val_end])
+            pos = val_end
+        elif wt == 0:
+            _, pos = _decode_varint(buf, pos)
+            out.append(buf[tag_start:pos])
+        elif wt == 1:
+            if pos + 8 > len(buf):
+                break
+            out.append(buf[tag_start : pos + 8])
+            pos += 8
+        elif wt == 5:
+            if pos + 4 > len(buf):
+                break
+            out.append(buf[tag_start : pos + 4])
+            pos += 4
+        else:
+            out.append(buf[tag_start:])
+            break
+    if not found:
+        raise ValueError(f"Zone {zone_id} not found in perimeter data_points")
+    return list(b"".join(out))
+
+
 def _decode_varint(data: bytes, pos: int) -> tuple[int, int]:
     result = 0
     shift = 0
