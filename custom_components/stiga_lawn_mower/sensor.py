@@ -16,6 +16,7 @@ from homeassistant.const import (
     SIGNAL_STRENGTH_DECIBELS,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
+    UnitOfArea,
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
@@ -151,6 +152,35 @@ SENSOR_DESCRIPTIONS: tuple[StigaSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTime.SECONDS,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
+    # --- Garden layout sensors (from REST /api/perimeters) ---
+    StigaSensorDescription(
+        key="garden_area",
+        name="Garden Area",
+        icon="mdi:map-outline",
+        device_class=SensorDeviceClass.AREA,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfArea.SQUARE_METERS,
+    ),
+    StigaSensorDescription(
+        key="garden_zones",
+        name="Garden Zones",
+        icon="mdi:layers-outline",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    StigaSensorDescription(
+        key="obstacles_count",
+        name="Obstacles",
+        icon="mdi:wall",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    StigaSensorDescription(
+        key="obstacles_area",
+        name="Obstacle Area",
+        icon="mdi:wall",
+        device_class=SensorDeviceClass.AREA,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfArea.SQUARE_METERS,
+    ),
 )
 
 
@@ -229,4 +259,17 @@ class StigaSensor(CoordinatorEntity[StigaCoordinator], SensorEntity):
         if key == "total_work_time":
             v = self.coordinator.device.total_work_time
             return v if v else None
+        info = self.coordinator.garden_info
+        if key == "garden_area":
+            if info and info.total_area_m2 is not None:
+                return round(info.total_area_m2, 1)
+            return None
+        if key == "garden_zones":
+            return info.zones_count if info else None
+        if key == "obstacles_count":
+            return info.obstacles_count if info else None
+        if key == "obstacles_area":
+            if info and info.obstacles_area_m2 is not None:
+                return round(info.obstacles_area_m2, 1)
+            return None
         return None

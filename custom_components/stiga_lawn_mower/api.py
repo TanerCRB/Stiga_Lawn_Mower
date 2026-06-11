@@ -220,6 +220,16 @@ class StigaRobotPosition:
     heading: float = 0.0        # compass bearing, degrees 0–360
 
 
+@dataclass
+class StigaGardenInfo:
+    """Garden layout summary from REST GET /api/perimeters."""
+    total_area_m2: float | None = None
+    zones_count: int | None = None
+    zones_area_m2: float | None = None
+    obstacles_count: int | None = None
+    obstacles_area_m2: float | None = None
+
+
 def _fixed64_to_double(val: int) -> float:
     """Reinterpret a uint64 (from protobuf fixed64) as an IEEE 754 little-endian double."""
     return struct.unpack("<d", val.to_bytes(8, "little"))[0]
@@ -338,6 +348,30 @@ class StigaRestClient:
             )
             devices.append(device)
         return devices
+
+    async def get_perimeters(self, device: StigaDevice) -> StigaGardenInfo:
+        """Fetch garden layout summary (area, zones, obstacles) from REST API."""
+        if not device.uuid or not device.base_uuid:
+            _LOGGER.debug("Skipping perimeter fetch: device missing uuid or base_uuid")
+            return StigaGardenInfo()
+        data = await self._request(
+            "GET", "/api/perimeters",
+            params={"base_uuid": device.base_uuid, "device_uuid": device.uuid},
+        )
+        try:
+            preview = (data["data"]["attributes"].get("preview") or {})
+            zones = preview.get("zones") or {}
+            obstacles = preview.get("obstacles") or {}
+            return StigaGardenInfo(
+                total_area_m2=preview.get("m2Area"),
+                zones_count=zones.get("num"),
+                zones_area_m2=zones.get("m2Area"),
+                obstacles_count=obstacles.get("num"),
+                obstacles_area_m2=obstacles.get("m2Area"),
+            )
+        except (KeyError, TypeError) as exc:
+            _LOGGER.debug("Failed to parse perimeter response: %s", exc)
+            return StigaGardenInfo()
 
 
 class StigaMQTTClient:

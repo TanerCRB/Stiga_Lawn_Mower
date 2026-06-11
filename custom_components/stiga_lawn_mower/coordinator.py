@@ -8,7 +8,7 @@ from datetime import timedelta
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .api import StigaAuth, StigaDevice, StigaDeviceStatus, StigaMQTTClient, StigaRestClient, StigaRobotPosition, StigaRobotSchedule, StigaRobotSettings
+from .api import StigaAuth, StigaDevice, StigaDeviceStatus, StigaGardenInfo, StigaMQTTClient, StigaRestClient, StigaRobotPosition, StigaRobotSchedule, StigaRobotSettings
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         self._mqtt = StigaMQTTClient(device, auth)
         self._base_latitude = base_latitude
         self._base_longitude = base_longitude
+        self._garden_info: StigaGardenInfo | None = None
         self._shutdown = False
         self._retry_task: asyncio.Task | None = None
 
@@ -62,6 +63,10 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         return self._base_longitude
 
     @property
+    def garden_info(self) -> StigaGardenInfo | None:
+        return self._garden_info
+
+    @property
     def mqtt_connected(self) -> bool:
         return self._mqtt.connected
 
@@ -72,6 +77,16 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         self._mqtt.add_schedule_callback(self._on_mqtt_schedule)
         self._mqtt.add_position_callback(self._on_mqtt_position)
         await self._try_connect_mqtt()
+        try:
+            self._garden_info = await self._rest.get_perimeters(self.device)
+            _LOGGER.debug(
+                "Garden perimeters: area=%s m², zones=%s, obstacles=%s",
+                self._garden_info.total_area_m2,
+                self._garden_info.zones_count,
+                self._garden_info.obstacles_count,
+            )
+        except Exception as exc:
+            _LOGGER.debug("Failed to fetch garden perimeters: %s", exc)
 
     async def _try_connect_mqtt(self) -> None:
         try:

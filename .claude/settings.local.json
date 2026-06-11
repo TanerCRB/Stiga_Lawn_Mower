@@ -16,7 +16,9 @@
       "PowerShell(Copy-Item *)",
       "Bash(cd /tmp)",
       "Bash(gh repo *)",
-      "PowerShell(git clone https://github.com/jpawlowski/hacs.integration_blueprint --depth 1 $env:TEMP\\\\blueprint 2>&1; $LASTEXITCODE)"
+      "PowerShell(git clone https://github.com/jpawlowski/hacs.integration_blueprint --depth 1 $env:TEMP\\\\blueprint 2>&1; $LASTEXITCODE)",
+      "Bash(Copy-Item *)",
+      "Bash(Get-ChildItem *)"
     ]
   }
 }

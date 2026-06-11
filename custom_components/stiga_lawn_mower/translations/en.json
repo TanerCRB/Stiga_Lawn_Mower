@@ -70,7 +70,11 @@
       "rsrq": { "name": "RSRQ" },
       "signal_quality": { "name": "Signal Quality" },
       "firmware_version": { "name": "Firmware Version" },
-      "total_work_time": { "name": "Total Work Time" }
+      "total_work_time": { "name": "Total Work Time" },
+      "garden_area": { "name": "Garden Area" },
+      "garden_zones": { "name": "Garden Zones" },
+      "obstacles_count": { "name": "Obstacles" },
+      "obstacles_area": { "name": "Obstacle Area" }
     },
     "binary_sensor": {
       "cloud_connection": { "name": "Cloud Connection" },

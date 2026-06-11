@@ -83,6 +83,10 @@ All Stiga robots controllable via the **STIGA.GO app**:
 | Signal Quality | % | diagnostic |
 | Firmware Version | — | diagnostic |
 | Total Work Time | s | diagnostic |
+| Garden Area | m² | — |
+| Garden Zones | — | — |
+| Obstacles | — | — |
+| Obstacle Area | m² | — |
 
 ### Binary Sensor Entities
 
@@ -240,6 +244,21 @@ Shows the time remaining until the next scheduled mowing.
 1. Click on an existing event in the Calendar view.
 2. Click the **Delete** button.
 3. The updated schedule is sent to the robot immediately.
+
+---
+
+### Garden Layout Sensors
+
+Four read-only sensors that reflect the garden map stored in the Stiga cloud. They are fetched once from the REST API (`/api/perimeters`) when the integration loads.
+
+| Entity | Description |
+|---|---|
+| `sensor.<robot>_garden_area` | Total area of the mapped garden in m² |
+| `sensor.<robot>_garden_zones` | Number of active mowing zones |
+| `sensor.<robot>_obstacles` | Number of mapped obstacles |
+| `sensor.<robot>_obstacle_area` | Total area covered by obstacles in m² |
+
+These values change only when you remap your garden in the STIGA.GO app. To refresh them, reload the integration via **Settings → Devices & Services → Stiga Lawn Mower → Reload**.
 
 ---
 
