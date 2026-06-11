@@ -14,29 +14,79 @@ from .const import CONF_BASE_LATITUDE, CONF_BASE_LONGITUDE, CONF_EMAIL, CONF_PAS
 
 _LOGGER = logging.getLogger(__name__)
 
-
-def _opt_float(val: object) -> float | None:
-    """Accept a float, numeric string, or blank/None — return None for empty."""
-    if val is None:
-        return None
-    if isinstance(val, (int, float)):
-        return float(val)
-    if isinstance(val, str):
-        val = val.strip()
-        if not val:
-            return None
-        return float(val)
-    raise vol.Invalid("Expected a number or blank")
-
-
 STEP_USER_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_EMAIL): str,
         vol.Required(CONF_PASSWORD): str,
-        vol.Optional(CONF_BASE_LATITUDE): _opt_float,
-        vol.Optional(CONF_BASE_LONGITUDE): _opt_float,
+        vol.Optional(CONF_BASE_LATITUDE): str,
+        vol.Optional(CONF_BASE_LONGITUDE): str,
     }
 )
+
+
+def _parse_coord(val: str | None) -> float | None:
+    """Convert a coordinate string to decimal degrees float.
+
+    Accepts:
+    - Decimal degrees with dot or comma: "54.1315" or "54,1315"
+    - DMS format: "54°07'53.5\"N" or "54°7'53.5N"
+    Returns None for blank or unparseable input.
+    """
+    import re
+    if not val:
+        return None
+    val = val.strip()
+
+    # DMS pattern: DD°MM'SS.S"[NSEW]  (all separators optional/flexible)
+    dms = re.match(
+        r"""^(\d+)[°d\s]+(\d+)['\s]+([0-9.]+)["\s]*([NSEWnsew]?)$""",
+        val.replace(",", "."),
+    )
+    if dms:
+        deg, minutes, seconds, hemi = dms.groups()
+        result = float(deg) + float(minutes) / 60 + float(seconds) / 3600
+        if hemi.upper() in ("S", "W"):
+            result = -result
+        return result
+
+    # Plain decimal (dot or comma)
+    try:
+        return float(val.replace(",", "."))
+    except (ValueError, TypeError):
+        return None
+
+
+def _coord_schema(existing_lat: float | None, existing_lon: float | None) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Optional(
+                CONF_BASE_LATITUDE,
+                default=str(existing_lat) if existing_lat is not None else "",
+            ): str,
+            vol.Optional(
+                CONF_BASE_LONGITUDE,
+                default=str(existing_lon) if existing_lon is not None else "",
+            ): str,
+        }
+    )
+
+
+def _validate_coords(
+    raw_lat: str, raw_lon: str
+) -> tuple[float | None, float | None, dict[str, str]]:
+    """Parse and validate coordinate strings. Returns (lat, lon, errors)."""
+    errors: dict[str, str] = {}
+    base_lat = _parse_coord(raw_lat)
+    base_lon = _parse_coord(raw_lon)
+
+    if raw_lat and base_lat is None:
+        errors[CONF_BASE_LATITUDE] = "invalid_coordinate"
+    if raw_lon and base_lon is None:
+        errors[CONF_BASE_LONGITUDE] = "invalid_coordinate"
+    if not errors and bool(raw_lat) != bool(raw_lon):
+        errors["base"] = "coords_incomplete"
+
+    return base_lat, base_lon, errors
 
 
 class StigaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -50,31 +100,65 @@ class StigaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             email = user_input[CONF_EMAIL]
             password = user_input[CONF_PASSWORD]
+            raw_lat = user_input.get(CONF_BASE_LATITUDE, "").strip()
+            raw_lon = user_input.get(CONF_BASE_LONGITUDE, "").strip()
 
-            try:
-                auth = StigaAuth(email, password)
-                rest = StigaRestClient(auth)
-                await rest.get_user()
-            except StigaAuthError:
-                errors["base"] = "invalid_auth"
-            except Exception:
-                _LOGGER.exception("Unexpected error during Stiga setup")
-                errors["base"] = "cannot_connect"
-            else:
-                await self.async_set_unique_id(email.lower())
-                self._abort_if_unique_id_configured()
-                return self.async_create_entry(
-                    title=f"Stiga ({email})",
-                    data={
-                        CONF_EMAIL: email,
-                        CONF_PASSWORD: password,
-                        CONF_BASE_LATITUDE: user_input.get(CONF_BASE_LATITUDE),
-                        CONF_BASE_LONGITUDE: user_input.get(CONF_BASE_LONGITUDE),
-                    },
-                )
+            base_lat, base_lon, errors = _validate_coords(raw_lat, raw_lon)
+
+            if not errors:
+                try:
+                    auth = StigaAuth(email, password)
+                    rest = StigaRestClient(auth)
+                    await rest.get_user()
+                except StigaAuthError:
+                    errors["base"] = "invalid_auth"
+                except Exception:
+                    _LOGGER.exception("Unexpected error during Stiga setup")
+                    errors["base"] = "cannot_connect"
+                else:
+                    await self.async_set_unique_id(email.lower())
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(
+                        title=f"Stiga ({email})",
+                        data={
+                            CONF_EMAIL: email,
+                            CONF_PASSWORD: password,
+                            CONF_BASE_LATITUDE: base_lat,
+                            CONF_BASE_LONGITUDE: base_lon,
+                        },
+                    )
 
         return self.async_show_form(
             step_id="user",
             data_schema=STEP_USER_SCHEMA,
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Allow updating base station coordinates without reinstalling."""
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        existing_lat = entry.data.get(CONF_BASE_LATITUDE)
+        existing_lon = entry.data.get(CONF_BASE_LONGITUDE)
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            raw_lat = user_input.get(CONF_BASE_LATITUDE, "").strip()
+            raw_lon = user_input.get(CONF_BASE_LONGITUDE, "").strip()
+            base_lat, base_lon, errors = _validate_coords(raw_lat, raw_lon)
+
+            if not errors:
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data_updates={
+                        CONF_BASE_LATITUDE: base_lat,
+                        CONF_BASE_LONGITUDE: base_lon,
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_coord_schema(existing_lat, existing_lon),
             errors=errors,
         )

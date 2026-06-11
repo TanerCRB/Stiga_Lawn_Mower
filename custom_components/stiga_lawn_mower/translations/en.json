@@ -11,14 +11,28 @@
           "base_longitude": "Base station longitude (optional — enables GPS map)"
         },
         "data_description": {
-          "base_latitude": "GPS latitude of your charging station (e.g. 52.2297). Leave blank to skip — you can set it later by reconfiguring.",
+          "base_latitude": "GPS latitude of your charging station (e.g. 52.2297). Leave blank to skip — you can set it later via Reconfigure.",
           "base_longitude": "GPS longitude of your charging station (e.g. 21.0122). Leave blank to skip."
+        }
+      },
+      "reconfigure": {
+        "title": "Update base station coordinates",
+        "description": "Enter the GPS coordinates of your Stiga charging station. Use a dot as the decimal separator (e.g. 52.2297). Both fields must be filled in together, or both left blank.",
+        "data": {
+          "base_latitude": "Base station latitude",
+          "base_longitude": "Base station longitude"
+        },
+        "data_description": {
+          "base_latitude": "e.g. 52.2297 — find it in Google Maps (right-click on the charging station)",
+          "base_longitude": "e.g. 21.0122"
         }
       }
     },
     "error": {
       "invalid_auth": "Invalid email or password.",
-      "cannot_connect": "Failed to connect to the Stiga cloud. Check your network connection."
+      "cannot_connect": "Failed to connect to the Stiga cloud. Check your network connection.",
+      "coords_incomplete": "Enter both latitude and longitude, or leave both blank.",
+      "invalid_coordinate": "Invalid coordinate — use a decimal number, e.g. 52.2297 (dot or comma accepted)."
     },
     "abort": {
       "already_configured": "This Stiga account is already configured."

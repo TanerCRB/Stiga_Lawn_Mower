@@ -102,7 +102,7 @@ All Stiga robots controllable via the **STIGA.GO app**:
 
 | Entity | Notes |
 |---|---|
-| **Location** | Robot's GPS position on the HA map (requires base station coordinates in setup) |
+| **Location** | Robot's real-time GPS position on the HA map — updated live while mowing; requires base station coordinates (set during setup or via Reconfigure) |
 
 ### Number Entity (Configuration)
 
@@ -137,22 +137,39 @@ All Stiga robots controllable via the **STIGA.GO app**:
 
 ### Device Tracker — GPS Position on Map
 
-The integration exposes a `device_tracker` entity that shows the robot's real-time position on the HA map.
+The integration exposes a `device_tracker` entity that shows the robot's real-time position on the HA map, updated live as the robot mows.
 
-**How it works:** The robot broadcasts its position as a metre-offset from the base station (charging dock). The integration converts this offset to absolute GPS coordinates using the base station's known location.
+**How it works:** The robot broadcasts its GPS position as a metre-offset from the base station (charging dock) via MQTT. The integration converts this offset to absolute GPS coordinates using the base station's known location.
 
-#### Enabling the map
+#### Setting up base station coordinates
 
-During setup (or when reconfiguring), enter the GPS coordinates of your **charging station**:
+During initial setup or via **Reconfigure**, enter the GPS coordinates of your **charging station**:
 
 | Field | Example |
 |---|---|
-| Base station latitude | `52.2297` |
-| Base station longitude | `21.0122` |
+| Base station latitude | `54.131528` |
+| Base station longitude | `16.281694` |
 
-You can find the coordinates with Google Maps (right-click on the charging station → *What's here?*) or by standing next to it with your phone's GPS.
+**How to find the coordinates:**
+- Google Maps: right-click on the charging station → copy the coordinates shown (e.g. `54.131528, 16.281694`)
+- Google Maps also shows DMS format (`54°07'53.5"N 16°16'54.1"E`) — this is accepted directly
 
-If you skip this step, the entity still exists but coordinates are `unknown` — you can reconfigure the integration later to add them.
+**Accepted formats:**
+
+| Format | Example |
+|---|---|
+| Decimal degrees (dot) | `54.131528` |
+| Decimal degrees (comma) | `54,131528` |
+| Degrees°Minutes'Seconds" | `54°07'53.5"N` |
+
+If you skip this step, the `Location` entity still exists but shows `not_home` without map coordinates. Add them later via **Settings → Devices & Services → Stiga Lawn Mower → ⋮ → Reconfigure**.
+
+#### Entity state
+
+The entity state follows standard HA device tracker behaviour:
+- **`home`** — robot is within the configured Home zone
+- **`not_home`** — robot is outside the Home zone (normal state while mowing in the garden)
+- **`unknown`** — base station coordinates not configured
 
 #### Visualising the position
 
@@ -161,10 +178,13 @@ If you skip this step, the entity still exists but coordinates are `unknown` —
 ```yaml
 type: map
 entities:
-  - device_tracker.stiga_location
+  - device_tracker.<robot_name>_location
+hours_to_show: 1
 ```
 
-**Option 2 — Auto map** (HA sidebar)
+Replace `<robot_name>` with the name of your robot as set in the STIGA app (e.g. `device_tracker.bob_location`). The `hours_to_show: 1` option draws the mowing trail for the past hour.
+
+**Option 2 — Map view** (HA sidebar)
 
 Navigate to **Map** in the HA sidebar — the robot appears as a pin alongside all other tracked devices.
 
