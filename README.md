@@ -9,7 +9,17 @@
 
 Unofficial Home Assistant integration for **Stiga A-series robot mowers** (Vista, A 1500, A 3000, …) controllable via the STIGA.GO app.
 
-Based on the reverse-engineered [stiga-api](https://github.com/matthewgream/stiga-api). Not officially provided or supported by Stiga.
+Not officially provided or supported by Stiga.
+
+---
+
+## Based on stiga-api
+
+This integration is built entirely on the reverse-engineering work done by **[@matthewgream](https://github.com/matthewgream)** in the [stiga-api](https://github.com/matthewgream/stiga-api) project.
+
+That project reverse-engineered the Stiga A-series communication protocol by deconstructing the official Android app — extracting the Firebase authentication flow, the REST API endpoints, the MQTT broker configuration, the mTLS certificates, and the Protobuf message format. Without that foundational work, this Home Assistant integration would not exist.
+
+The `oryginal node.js/` directory in this repository contains a copy of `stiga-api` for reference during development.
 
 ---
 
@@ -187,14 +197,14 @@ MIT License — see [LICENSE](LICENSE).
 
 ---
 
-[commits-shield]: https://img.shields.io/github/commit-activity/y/TanerCRB/StigaLawnMower.svg?style=for-the-badge
-[commits]: https://github.com/TanerCRB/StigaLawnMower/commits/main
+[commits-shield]: https://img.shields.io/github/commit-activity/y/TanerCRB/Stiga_Lawn_Mower.svg?style=for-the-badge
+[commits]: https://github.com/TanerCRB/Stiga_Lawn_Mower/commits/main
 [hacs]: https://github.com/hacs/integration
 [hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge
-[license-shield]: https://img.shields.io/github/license/TanerCRB/StigaLawnMower.svg?style=for-the-badge
+[license-shield]: https://img.shields.io/github/license/TanerCRB/Stiga_Lawn_Mower.svg?style=for-the-badge
 [maintenance-shield]: https://img.shields.io/badge/maintainer-%40TanerCRB-blue.svg?style=for-the-badge
-[releases-shield]: https://img.shields.io/github/release/TanerCRB/StigaLawnMower.svg?style=for-the-badge
-[releases]: https://github.com/TanerCRB/StigaLawnMower/releases
-[source]: https://github.com/TanerCRB/StigaLawnMower/tree/main/custom_components/stiga_lawn_mower
-[documentation]: https://github.com/TanerCRB/StigaLawnMower/blob/main/README.md
-[issues]: https://github.com/TanerCRB/StigaLawnMower/issues
+[releases-shield]: https://img.shields.io/github/release/TanerCRB/Stiga_Lawn_Mower.svg?style=for-the-badge
+[releases]: https://github.com/TanerCRB/Stiga_Lawn_Mower/releases
+[source]: https://github.com/TanerCRB/Stiga_Lawn_Mower/tree/main/custom_components/stiga_lawn_mower
+[documentation]: https://github.com/TanerCRB/Stiga_Lawn_Mower/blob/main/README.md
+[issues]: https://github.com/TanerCRB/Stiga_Lawn_Mower/issues
