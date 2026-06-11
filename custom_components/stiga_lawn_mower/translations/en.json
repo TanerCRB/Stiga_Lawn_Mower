@@ -19,6 +19,9 @@
     }
   },
   "entity": {
+    "calendar": {
+      "mowing_schedule": { "name": "Mowing Schedule" }
+    },
     "sensor": {
       "battery": { "name": "Battery" },
       "status": { "name": "Status" },

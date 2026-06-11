@@ -8,7 +8,7 @@ from datetime import timedelta
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .api import StigaAuth, StigaDevice, StigaDeviceStatus, StigaMQTTClient, StigaRestClient, StigaRobotSettings
+from .api import StigaAuth, StigaDevice, StigaDeviceStatus, StigaMQTTClient, StigaRestClient, StigaRobotSchedule, StigaRobotSettings
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,6 +42,10 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         return self._mqtt.settings
 
     @property
+    def schedule(self) -> StigaRobotSchedule:
+        return self._mqtt.schedule
+
+    @property
     def mqtt_connected(self) -> bool:
         return self._mqtt.connected
 
@@ -49,6 +53,7 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         """Start MQTT connection attempt; non-fatal if broker unreachable."""
         self._mqtt.add_status_callback(self._on_mqtt_status)
         self._mqtt.add_settings_callback(self._on_mqtt_settings)
+        self._mqtt.add_schedule_callback(self._on_mqtt_schedule)
         await self._try_connect_mqtt()
 
     async def _try_connect_mqtt(self) -> None:
@@ -90,6 +95,10 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         """Settings received — push a coordinator update so config entities refresh."""
         self.async_set_updated_data(self._mqtt.status)
 
+    def _on_mqtt_schedule(self, schedule: StigaRobotSchedule) -> None:
+        """Schedule received — push a coordinator update so calendar entity refreshes."""
+        self.async_set_updated_data(self._mqtt.status)
+
     async def async_send_command(self, command_type: int) -> None:
         await self._mqtt.send_command(command_type)
 
@@ -101,6 +110,12 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         await self._mqtt.send_settings_update(settings_fields)
         await asyncio.sleep(0.3)
         await self._mqtt.request_settings()
+
+    async def async_update_schedule(self, schedule: StigaRobotSchedule) -> None:
+        """Send SCHEDULING_SETTINGS_UPDATE and request fresh schedule in return."""
+        await self._mqtt.send_schedule_update(schedule)
+        await asyncio.sleep(0.3)
+        await self._mqtt.request_schedule()
 
     async def _async_update_data(self) -> StigaDeviceStatus:
         """Request fresh status via MQTT; return last known state."""

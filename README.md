@@ -18,9 +18,6 @@ Not officially provided or supported by Stiga.
 This integration is built entirely on the reverse-engineering work done by **[@matthewgream](https://github.com/matthewgream)** in the [stiga-api](https://github.com/matthewgream/stiga-api) project.
 
 That project reverse-engineered the Stiga A-series communication protocol by deconstructing the official Android app — extracting the Firebase authentication flow, the REST API endpoints, the MQTT broker configuration, the mTLS certificates, and the Protobuf message format. Without that foundational work, this Home Assistant integration would not exist.
-
-The `oryginal node.js/` directory in this repository contains a copy of `stiga-api` for reference during development.
-
 ---
 
 ## Architecture

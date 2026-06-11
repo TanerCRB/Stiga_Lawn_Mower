@@ -36,6 +36,8 @@ from .const import (
     NETWORK_RSSI,
     NETWORK_SQ,
     RAIN_DELAY_BY_IDX,
+    ROBOT_CMD_SCHEDULING_REQUEST,
+    ROBOT_CMD_SCHEDULING_UPDATE,
     ROBOT_CMD_SETTINGS_REQUEST,
     ROBOT_CMD_SETTINGS_UPDATE,
     ROBOT_CMD_STATUS_REQUEST,
@@ -187,6 +189,52 @@ class StigaRobotSettings:
     long_exit_enabled: bool = False
 
 
+@dataclass
+class StigaScheduleBlock:
+    """One contiguous mowing window within a single day."""
+    day_index: int   # 0=Monday … 6=Sunday
+    start_slot: int  # 0–47  (slot n = n*30 min from midnight)
+    end_slot: int    # 0–47, inclusive
+
+
+@dataclass
+class StigaRobotSchedule:
+    """Weekly mowing schedule — sourced from MQTT LOG/SCHEDULING_SETTINGS (cmd 19 response)."""
+    enabled: bool = False
+    blocks: list = field(default_factory=list)  # list[StigaScheduleBlock]
+    schedule_type: int = 5
+
+
+def _decode_schedule_bitmap(bitmap: bytes) -> list[StigaScheduleBlock]:
+    """Parse the 42-byte weekly bitmap (7 days × 6 bytes × 8 bits = 48 half-hour slots/day)."""
+    if len(bitmap) != 42:
+        return []
+    blocks: list[StigaScheduleBlock] = []
+    for day_index in range(7):
+        block_start = -1
+        for slot in range(48):
+            byte_idx = day_index * 6 + slot // 8
+            bit = (bitmap[byte_idx] >> (slot % 8)) & 1
+            if bit and block_start == -1:
+                block_start = slot
+            elif not bit and block_start != -1:
+                blocks.append(StigaScheduleBlock(day_index, block_start, slot - 1))
+                block_start = -1
+        if block_start != -1:
+            blocks.append(StigaScheduleBlock(day_index, block_start, 47))
+    return blocks
+
+
+def _encode_schedule_bitmap(blocks: list[StigaScheduleBlock]) -> bytes:
+    """Encode schedule blocks back to the 42-byte weekly bitmap."""
+    bitmap = bytearray(42)
+    for block in blocks:
+        for slot in range(block.start_slot, block.end_slot + 1):
+            byte_idx = block.day_index * 6 + slot // 8
+            bitmap[byte_idx] |= 1 << (slot % 8)
+    return bytes(bitmap)
+
+
 class StigaAuth:
     def __init__(self, email: str, password: str) -> None:
         self._email = email
@@ -281,6 +329,8 @@ class StigaMQTTClient:
         self._settings = StigaRobotSettings()
         self._callbacks: list[Callable[[StigaDeviceStatus], None]] = []
         self._settings_callbacks: list[Callable[[StigaRobotSettings], None]] = []
+        self._schedule_callbacks: list[Callable[[StigaRobotSchedule], None]] = []
+        self._schedule = StigaRobotSchedule()
         self._connected = False
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._cert_path: Optional[str] = None
@@ -298,6 +348,11 @@ class StigaMQTTClient:
     ) -> None:
         self._settings_callbacks.append(callback)
 
+    def add_schedule_callback(
+        self, callback: Callable[[StigaRobotSchedule], None]
+    ) -> None:
+        self._schedule_callbacks.append(callback)
+
     @property
     def status(self) -> StigaDeviceStatus:
         return self._status
@@ -305,6 +360,10 @@ class StigaMQTTClient:
     @property
     def settings(self) -> StigaRobotSettings:
         return self._settings
+
+    @property
+    def schedule(self) -> StigaRobotSchedule:
+        return self._schedule
 
     @property
     def connected(self) -> bool:
@@ -427,6 +486,7 @@ class StigaMQTTClient:
                 f"{mac}/LOG/+",
                 f"CMD_ROBOT_ACK/{mac}",
                 f"{mac}/JSON_NOTIFICATION",
+                f"{mac}/LOG/SCHEDULING_SETTINGS",
             ]:
                 res, mid = client.subscribe(topic, qos=0)
                 _LOGGER.debug("MQTT subscribe '%s' res=%d mid=%d", topic, res, mid)
@@ -439,6 +499,9 @@ class StigaMQTTClient:
             settings_payload = encode_robot_command(ROBOT_CMD_SETTINGS_REQUEST)
             client.publish(f"{mac}/CMD_ROBOT", settings_payload, qos=2)
             _LOGGER.debug("MQTT: sent initial SETTINGS_REQUEST to %s/CMD_ROBOT", mac)
+            schedule_payload = encode_robot_command(ROBOT_CMD_SCHEDULING_REQUEST)
+            client.publish(f"{mac}/CMD_ROBOT", schedule_payload, qos=2)
+            _LOGGER.debug("MQTT: sent initial SCHEDULING_SETTINGS_REQUEST to %s/CMD_ROBOT", mac)
         else:
             _LOGGER.error("MQTT connection failed with code %d", rc)
 
@@ -455,6 +518,11 @@ class StigaMQTTClient:
             if self._loop:
                 for cb in self._settings_callbacks:
                     self._loop.call_soon_threadsafe(cb, self._settings)
+        elif msg.topic == f"{mac}/LOG/SCHEDULING_SETTINGS":
+            self._parse_schedule(msg.payload)
+            if self._loop:
+                for cb in self._schedule_callbacks:
+                    self._loop.call_soon_threadsafe(cb, self._schedule)
         else:
             _LOGGER.debug("MQTT unhandled topic: %s", msg.topic)
 
@@ -669,6 +737,43 @@ class StigaMQTTClient:
             lambda: self._client.publish(topic, payload, qos=2),
         )
         _LOGGER.debug("Sent SETTINGS_UPDATE to %s", topic)
+
+    def _parse_schedule(self, payload: bytes) -> None:
+        try:
+            fields = decode_protobuf(payload)
+            enabled = bool(fields.get(1, 0))
+            bitmap = fields.get(2)
+            schedule_type = int(fields.get(4, 5))
+            blocks = _decode_schedule_bitmap(bitmap) if isinstance(bitmap, bytes) else []
+            self._schedule = StigaRobotSchedule(enabled=enabled, blocks=blocks, schedule_type=schedule_type)
+            _LOGGER.debug("Parsed schedule: enabled=%s blocks=%d", enabled, len(blocks))
+        except Exception as exc:
+            _LOGGER.debug("Error parsing SCHEDULING_SETTINGS: %s", exc)
+
+    async def request_schedule(self) -> None:
+        """Send SCHEDULING_SETTINGS_REQUEST so robot publishes its current schedule."""
+        if not self._client or not self._connected:
+            return
+        payload = encode_robot_command(ROBOT_CMD_SCHEDULING_REQUEST)
+        topic = f"{self._mac}/CMD_ROBOT"
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: self._client.publish(topic, payload, qos=2))
+
+    async def send_schedule_update(self, schedule: StigaRobotSchedule) -> None:
+        """Send SCHEDULING_SETTINGS_UPDATE with the full weekly schedule."""
+        if not self._client or not self._connected:
+            raise StigaAPIError("MQTT not connected")
+        bitmap = _encode_schedule_bitmap(schedule.blocks)
+        fields_payload = encode_protobuf({
+            1: 1 if schedule.enabled else 0,
+            2: bitmap,
+            4: schedule.schedule_type,
+        })
+        payload = encode_robot_command(ROBOT_CMD_SCHEDULING_UPDATE, fields_payload)
+        topic = f"{self._mac}/CMD_ROBOT"
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: self._client.publish(topic, payload, qos=2))
+        _LOGGER.debug("Sent SCHEDULING_SETTINGS_UPDATE to %s (%d blocks)", topic, len(schedule.blocks))
 
     async def disconnect(self) -> None:
         if self._client:

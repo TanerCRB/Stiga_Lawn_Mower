@@ -12,7 +12,7 @@ from .coordinator import StigaCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["lawn_mower", "sensor", "binary_sensor", "button", "number", "select", "switch"]
+PLATFORMS = ["lawn_mower", "sensor", "binary_sensor", "button", "calendar", "number", "select", "switch"]
 
 
 
