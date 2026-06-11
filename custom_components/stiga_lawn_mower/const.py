@@ -3,6 +3,8 @@ MANUFACTURER = "Stiga"
 
 CONF_EMAIL = "email"
 CONF_PASSWORD = "password"
+CONF_BASE_LATITUDE = "base_latitude"
+CONF_BASE_LONGITUDE = "base_longitude"
 
 # Firebase auth (from reverse-engineered Stiga app)
 FIREBASE_API_KEY = "AIzaSyCPtRBU_hwWZYsguHp9ucGrfNac0kXR6ug"
@@ -46,6 +48,7 @@ ROBOT_CMD_START = 1
 ROBOT_CMD_GO_HOME = 4
 ROBOT_CMD_SCHEDULING_REQUEST = 19  # requests robot to publish {mac}/LOG/SCHEDULING_SETTINGS
 ROBOT_CMD_SCHEDULING_UPDATE = 20   # sends new schedule bitmap to robot
+ROBOT_CMD_POSITION_REQUEST = 22    # requests robot to publish {mac}/LOG/ROBOT_POSITION
 ROBOT_CMD_CALIBRATE_BLADES = 26
 ROBOT_CMD_STATUS_REQUEST = 28  # requests robot to publish {mac}/LOG/STATUS
 

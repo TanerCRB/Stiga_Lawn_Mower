@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import ssl
+import struct
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -36,6 +38,7 @@ from .const import (
     NETWORK_RSSI,
     NETWORK_SQ,
     RAIN_DELAY_BY_IDX,
+    ROBOT_CMD_POSITION_REQUEST,
     ROBOT_CMD_SCHEDULING_REQUEST,
     ROBOT_CMD_SCHEDULING_UPDATE,
     ROBOT_CMD_SETTINGS_REQUEST,
@@ -205,6 +208,23 @@ class StigaRobotSchedule:
     schedule_type: int = 5
 
 
+@dataclass
+class StigaRobotPosition:
+    """Robot GPS position — sourced from MQTT LOG/ROBOT_POSITION (cmd 22 response).
+
+    Offsets are in metres relative to the base station.  To get absolute lat/lon,
+    add offsets to the base station's known coordinates (see coordinator.base_lat/lon).
+    """
+    offset_lat_m: float = 0.0   # metres north (+) / south (-)
+    offset_lon_m: float = 0.0   # metres east (+) / west (-)
+    heading: float = 0.0        # compass bearing, degrees 0–360
+
+
+def _fixed64_to_double(val: int) -> float:
+    """Reinterpret a uint64 (from protobuf fixed64) as an IEEE 754 little-endian double."""
+    return struct.unpack("<d", val.to_bytes(8, "little"))[0]
+
+
 def _decode_schedule_bitmap(bitmap: bytes) -> list[StigaScheduleBlock]:
     """Parse the 42-byte weekly bitmap (7 days × 6 bytes × 8 bits = 48 half-hour slots/day)."""
     if len(bitmap) != 42:
@@ -330,7 +350,9 @@ class StigaMQTTClient:
         self._callbacks: list[Callable[[StigaDeviceStatus], None]] = []
         self._settings_callbacks: list[Callable[[StigaRobotSettings], None]] = []
         self._schedule_callbacks: list[Callable[[StigaRobotSchedule], None]] = []
+        self._position_callbacks: list[Callable[[StigaRobotPosition], None]] = []
         self._schedule = StigaRobotSchedule()
+        self._position: Optional[StigaRobotPosition] = None
         self._connected = False
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._cert_path: Optional[str] = None
@@ -353,6 +375,11 @@ class StigaMQTTClient:
     ) -> None:
         self._schedule_callbacks.append(callback)
 
+    def add_position_callback(
+        self, callback: Callable[[StigaRobotPosition], None]
+    ) -> None:
+        self._position_callbacks.append(callback)
+
     @property
     def status(self) -> StigaDeviceStatus:
         return self._status
@@ -364,6 +391,10 @@ class StigaMQTTClient:
     @property
     def schedule(self) -> StigaRobotSchedule:
         return self._schedule
+
+    @property
+    def position(self) -> Optional[StigaRobotPosition]:
+        return self._position
 
     @property
     def connected(self) -> bool:
@@ -502,6 +533,9 @@ class StigaMQTTClient:
             schedule_payload = encode_robot_command(ROBOT_CMD_SCHEDULING_REQUEST)
             client.publish(f"{mac}/CMD_ROBOT", schedule_payload, qos=2)
             _LOGGER.debug("MQTT: sent initial SCHEDULING_SETTINGS_REQUEST to %s/CMD_ROBOT", mac)
+            position_payload = encode_robot_command(ROBOT_CMD_POSITION_REQUEST)
+            client.publish(f"{mac}/CMD_ROBOT", position_payload, qos=2)
+            _LOGGER.debug("MQTT: sent initial POSITION_REQUEST to %s/CMD_ROBOT", mac)
         else:
             _LOGGER.error("MQTT connection failed with code %d", rc)
 
@@ -523,6 +557,11 @@ class StigaMQTTClient:
             if self._loop:
                 for cb in self._schedule_callbacks:
                     self._loop.call_soon_threadsafe(cb, self._schedule)
+        elif msg.topic == f"{mac}/LOG/ROBOT_POSITION":
+            self._parse_position(msg.payload)
+            if self._loop and self._position is not None:
+                for cb in self._position_callbacks:
+                    self._loop.call_soon_threadsafe(cb, self._position)
         else:
             _LOGGER.debug("MQTT unhandled topic: %s", msg.topic)
 
@@ -738,6 +777,29 @@ class StigaMQTTClient:
         )
         _LOGGER.debug("Sent SETTINGS_UPDATE to %s", topic)
 
+    def _parse_position(self, payload: bytes) -> None:
+        try:
+            fields = decode_protobuf(payload)
+            # Fields 1–3 are fixed64 (wire type 1) encoding IEEE 754 doubles.
+            # decoded[1] = offsetLongitudeMetres, decoded[2] = offsetLatitudeMetres,
+            # decoded[3] = orientRad  — matches StigaAPIElements.js decodeRobotPosition.
+            offset_lon_m = _fixed64_to_double(fields[1]) if isinstance(fields.get(1), int) else 0.0
+            offset_lat_m = _fixed64_to_double(fields[2]) if isinstance(fields.get(2), int) else 0.0
+            orient_rad = _fixed64_to_double(fields[3]) if isinstance(fields.get(3), int) else 0.0
+            # Convert maths angle (0=East, CCW) to compass bearing (0=North, CW)
+            heading = (450.0 - math.degrees(orient_rad)) % 360.0
+            self._position = StigaRobotPosition(
+                offset_lat_m=offset_lat_m,
+                offset_lon_m=offset_lon_m,
+                heading=heading,
+            )
+            _LOGGER.debug(
+                "Parsed position: offset_lat=%.2fm offset_lon=%.2fm heading=%.1f°",
+                offset_lat_m, offset_lon_m, heading,
+            )
+        except Exception as exc:
+            _LOGGER.debug("Error parsing ROBOT_POSITION message: %s", exc)
+
     def _parse_schedule(self, payload: bytes) -> None:
         try:
             fields = decode_protobuf(payload)
@@ -755,6 +817,15 @@ class StigaMQTTClient:
         if not self._client or not self._connected:
             return
         payload = encode_robot_command(ROBOT_CMD_SCHEDULING_REQUEST)
+        topic = f"{self._mac}/CMD_ROBOT"
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: self._client.publish(topic, payload, qos=2))
+
+    async def request_position(self) -> None:
+        """Send POSITION_REQUEST so robot publishes its current GPS position."""
+        if not self._client or not self._connected:
+            return
+        payload = encode_robot_command(ROBOT_CMD_POSITION_REQUEST)
         topic = f"{self._mac}/CMD_ROBOT"
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: self._client.publish(topic, payload, qos=2))

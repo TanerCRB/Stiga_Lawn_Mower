@@ -7,12 +7,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .api import StigaAuth, StigaRestClient
-from .const import CONF_EMAIL, CONF_PASSWORD, DOMAIN
+from .const import CONF_BASE_LATITUDE, CONF_BASE_LONGITUDE, CONF_EMAIL, CONF_PASSWORD, DOMAIN
 from .coordinator import StigaCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["lawn_mower", "sensor", "binary_sensor", "button", "calendar", "number", "select", "switch"]
+PLATFORMS = ["lawn_mower", "sensor", "binary_sensor", "button", "calendar", "device_tracker", "number", "select", "switch"]
 
 
 
@@ -37,9 +37,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             device.product_code,
         )
 
+    base_lat = entry.data.get(CONF_BASE_LATITUDE)
+    base_lon = entry.data.get(CONF_BASE_LONGITUDE)
+
     coordinators: list[StigaCoordinator] = []
     for device in devices:
-        coord = StigaCoordinator(hass, auth, device)
+        coord = StigaCoordinator(hass, auth, device, base_lat, base_lon)
         await coord.async_setup()
         coordinators.append(coord)
 

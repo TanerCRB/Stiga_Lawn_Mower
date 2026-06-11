@@ -10,14 +10,31 @@ from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 
 from .api import StigaAuth, StigaAuthError, StigaRestClient
-from .const import CONF_EMAIL, CONF_PASSWORD, DOMAIN
+from .const import CONF_BASE_LATITUDE, CONF_BASE_LONGITUDE, CONF_EMAIL, CONF_PASSWORD, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _opt_float(val: object) -> float | None:
+    """Accept a float, numeric string, or blank/None — return None for empty."""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        val = val.strip()
+        if not val:
+            return None
+        return float(val)
+    raise vol.Invalid("Expected a number or blank")
+
 
 STEP_USER_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_EMAIL): str,
         vol.Required(CONF_PASSWORD): str,
+        vol.Optional(CONF_BASE_LATITUDE): _opt_float,
+        vol.Optional(CONF_BASE_LONGITUDE): _opt_float,
     }
 )
 
@@ -51,6 +68,8 @@ class StigaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data={
                         CONF_EMAIL: email,
                         CONF_PASSWORD: password,
+                        CONF_BASE_LATITUDE: user_input.get(CONF_BASE_LATITUDE),
+                        CONF_BASE_LONGITUDE: user_input.get(CONF_BASE_LONGITUDE),
                     },
                 )
 

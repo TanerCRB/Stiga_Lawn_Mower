@@ -8,7 +8,7 @@ from datetime import timedelta
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .api import StigaAuth, StigaDevice, StigaDeviceStatus, StigaMQTTClient, StigaRestClient, StigaRobotSchedule, StigaRobotSettings
+from .api import StigaAuth, StigaDevice, StigaDeviceStatus, StigaMQTTClient, StigaRestClient, StigaRobotPosition, StigaRobotSchedule, StigaRobotSettings
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,6 +23,8 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         hass: HomeAssistant,
         auth: StigaAuth,
         device: StigaDevice,
+        base_latitude: float | None = None,
+        base_longitude: float | None = None,
     ) -> None:
         super().__init__(
             hass,
@@ -34,6 +36,8 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         self._auth = auth
         self._rest = StigaRestClient(auth)
         self._mqtt = StigaMQTTClient(device, auth)
+        self._base_latitude = base_latitude
+        self._base_longitude = base_longitude
         self._shutdown = False
         self._retry_task: asyncio.Task | None = None
 
@@ -46,6 +50,18 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         return self._mqtt.schedule
 
     @property
+    def position(self) -> StigaRobotPosition | None:
+        return self._mqtt.position
+
+    @property
+    def base_latitude(self) -> float | None:
+        return self._base_latitude
+
+    @property
+    def base_longitude(self) -> float | None:
+        return self._base_longitude
+
+    @property
     def mqtt_connected(self) -> bool:
         return self._mqtt.connected
 
@@ -54,6 +70,7 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         self._mqtt.add_status_callback(self._on_mqtt_status)
         self._mqtt.add_settings_callback(self._on_mqtt_settings)
         self._mqtt.add_schedule_callback(self._on_mqtt_schedule)
+        self._mqtt.add_position_callback(self._on_mqtt_position)
         await self._try_connect_mqtt()
 
     async def _try_connect_mqtt(self) -> None:
@@ -99,6 +116,10 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         """Schedule received — push a coordinator update so calendar entity refreshes."""
         self.async_set_updated_data(self._mqtt.status)
 
+    def _on_mqtt_position(self, position: StigaRobotPosition) -> None:
+        """Position received — push a coordinator update so device_tracker refreshes."""
+        self.async_set_updated_data(self._mqtt.status)
+
     async def async_send_command(self, command_type: int) -> None:
         await self._mqtt.send_command(command_type)
 
@@ -118,10 +139,11 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         await self._mqtt.request_schedule()
 
     async def _async_update_data(self) -> StigaDeviceStatus:
-        """Request fresh status via MQTT; return last known state."""
+        """Request fresh status and position via MQTT; return last known state."""
         if self._mqtt.connected:
             try:
                 await self._mqtt.request_status()
+                await self._mqtt.request_position()
             except Exception as exc:
-                _LOGGER.debug("MQTT status request failed: %s", exc)
+                _LOGGER.debug("MQTT poll request failed: %s", exc)
         return self._mqtt.status

@@ -98,6 +98,12 @@ All Stiga robots controllable via the **STIGA.GO app**:
 | Bump Sensor | Collision detected |
 | Slope Sensor | Slope too steep |
 
+### Device Tracker Entity
+
+| Entity | Notes |
+|---|---|
+| **Location** | Robot's GPS position on the HA map (requires base station coordinates in setup) |
+
 ### Number Entity (Configuration)
 
 | Entity | Range | Step |
@@ -128,6 +134,92 @@ All Stiga robots controllable via the **STIGA.GO app**:
 |---|---|
 | Calibrate Blades | Trigger blade calibration routine |
 | Refresh Status | Request an immediate status update from the robot |
+
+### Device Tracker — GPS Position on Map
+
+The integration exposes a `device_tracker` entity that shows the robot's real-time position on the HA map.
+
+**How it works:** The robot broadcasts its position as a metre-offset from the base station (charging dock). The integration converts this offset to absolute GPS coordinates using the base station's known location.
+
+#### Enabling the map
+
+During setup (or when reconfiguring), enter the GPS coordinates of your **charging station**:
+
+| Field | Example |
+|---|---|
+| Base station latitude | `52.2297` |
+| Base station longitude | `21.0122` |
+
+You can find the coordinates with Google Maps (right-click on the charging station → *What's here?*) or by standing next to it with your phone's GPS.
+
+If you skip this step, the entity still exists but coordinates are `unknown` — you can reconfigure the integration later to add them.
+
+#### Visualising the position
+
+**Option 1 — Map card on a dashboard**
+
+```yaml
+type: map
+entities:
+  - device_tracker.stiga_location
+```
+
+**Option 2 — Auto map** (HA sidebar)
+
+Navigate to **Map** in the HA sidebar — the robot appears as a pin alongside all other tracked devices.
+
+#### Extra attributes
+
+| Attribute | Description |
+|---|---|
+| `offset_lat_m` | Metres north/south from the charging station |
+| `offset_lon_m` | Metres east/west from the charging station |
+| `heading` | Compass bearing the robot is facing (0–360°) |
+| `distance_m` | Straight-line distance from the charging station |
+
+---
+
+### Calendar Entity — Mowing Schedule
+
+Displays the robot's weekly mowing schedule and allows creating or deleting time windows directly from Home Assistant — changes are sent to the robot via MQTT within seconds.
+
+**Schedule granularity: 30 minutes** (hardware constraint). Times entered with non-30-minute precision are rounded down to the nearest half hour.
+
+#### Visualising the schedule
+
+**Option 1 — Built-in Calendar view** (sidebar)
+
+Navigate to the **Calendar** section in the HA sidebar. The `calendar.stiga_mowing_schedule` entity appears automatically. The weekly view shows all active mowing windows.
+
+**Option 2 — Calendar card on a dashboard**
+
+```yaml
+type: calendar
+entities:
+  - calendar.stiga_mowing_schedule
+```
+
+**Option 3 — Next event card**
+
+```yaml
+type: entity
+entity: calendar.stiga_mowing_schedule
+```
+
+Shows the time remaining until the next scheduled mowing.
+
+#### Adding a mowing window
+
+1. Open the Calendar view.
+2. Click on the desired day and time.
+3. Fill in the event form (summary is ignored — all events are treated as mowing windows).
+4. Click **Save** — the new window is sent to the robot immediately.
+
+#### Removing a mowing window
+
+1. Click on an existing event in the Calendar view.
+2. Click the **Delete** button.
+3. The updated schedule is sent to the robot immediately.
 
 ---
 

@@ -6,7 +6,13 @@
         "description": "Enter your STIGA.GO app credentials.",
         "data": {
           "email": "Email address",
-          "password": "Password"
+          "password": "Password",
+          "base_latitude": "Base station latitude (optional — enables GPS map)",
+          "base_longitude": "Base station longitude (optional — enables GPS map)"
+        },
+        "data_description": {
+          "base_latitude": "GPS latitude of your charging station (e.g. 52.2297). Leave blank to skip — you can set it later by reconfiguring.",
+          "base_longitude": "GPS longitude of your charging station (e.g. 21.0122). Leave blank to skip."
         }
       }
     },
@@ -21,6 +27,9 @@
   "entity": {
     "calendar": {
       "mowing_schedule": { "name": "Mowing Schedule" }
+    },
+    "device_tracker": {
+      "location": { "name": "Location" }
     },
     "sensor": {
       "battery": { "name": "Battery" },
