@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -23,25 +25,29 @@ STEP_USER_SCHEMA = vol.Schema(
     }
 )
 
+STEP_REAUTH_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_EMAIL): str,
+        vol.Required(CONF_PASSWORD): str,
+    }
+)
+
+_DMS_RE = re.compile(
+    r"""^(\d+)[°d\s]+(\d+)['\s]+([0-9.]+)["\s]*([NSEWnsew]?)$"""
+)
+
 
 def _parse_coord(val: str | None) -> float | None:
     """Convert a coordinate string to decimal degrees float.
 
-    Accepts:
-    - Decimal degrees with dot or comma: "54.1315" or "54,1315"
-    - DMS format: "54°07'53.5\"N" or "54°7'53.5N"
+    Accepts decimal degrees (dot or comma) and DMS format from Google Maps.
     Returns None for blank or unparseable input.
     """
-    import re
     if not val:
         return None
     val = val.strip()
 
-    # DMS pattern: DD°MM'SS.S"[NSEW]  (all separators optional/flexible)
-    dms = re.match(
-        r"""^(\d+)[°d\s]+(\d+)['\s]+([0-9.]+)["\s]*([NSEWnsew]?)$""",
-        val.replace(",", "."),
-    )
+    dms = _DMS_RE.match(val.replace(",", "."))
     if dms:
         deg, minutes, seconds, hemi = dms.groups()
         result = float(deg) + float(minutes) / 60 + float(seconds) / 3600
@@ -49,7 +55,6 @@ def _parse_coord(val: str | None) -> float | None:
             result = -result
         return result
 
-    # Plain decimal (dot or comma)
     try:
         return float(val.replace(",", "."))
     except (ValueError, TypeError):
@@ -131,6 +136,52 @@ class StigaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=STEP_USER_SCHEMA,
+            errors=errors,
+        )
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> FlowResult:
+        """Triggered by HA when credentials are rejected (ConfigEntryAuthFailed)."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Re-authentication form — only email + password, coordinates are preserved."""
+        errors: dict[str, str] = {}
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+
+        if user_input is not None:
+            email = user_input[CONF_EMAIL]
+            password = user_input[CONF_PASSWORD]
+            try:
+                auth = StigaAuth(email, password)
+                rest = StigaRestClient(auth)
+                await rest.get_user()
+            except StigaAuthError:
+                errors["base"] = "invalid_auth"
+            except Exception:
+                _LOGGER.exception("Unexpected error during Stiga reauth")
+                errors["base"] = "cannot_connect"
+            else:
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data_updates={
+                        CONF_EMAIL: email,
+                        CONF_PASSWORD: password,
+                    },
+                )
+
+        existing_email = entry.data.get(CONF_EMAIL, "") if entry else ""
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_EMAIL, default=existing_email): str,
+                    vol.Required(CONF_PASSWORD): str,
+                }
+            ),
             errors=errors,
         )
 

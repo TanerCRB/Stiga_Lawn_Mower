@@ -6,8 +6,8 @@
   "documentation": "https://github.com/TanerCRB/Stiga_Lawn_Mower/blob/main/README.md",
   "issue_tracker": "https://github.com/TanerCRB/Stiga_Lawn_Mower/issues",
   "requirements": ["paho-mqtt>=1.6.1", "aiohttp>=3.8.0"],
-  "dependencies": [],
   "codeowners": ["@TanerCRB"],
+  "integration_type": "hub",
   "iot_class": "cloud_push",
   "homeassistant": "2025.1.0"
 }
