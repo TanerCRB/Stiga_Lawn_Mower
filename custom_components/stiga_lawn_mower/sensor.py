@@ -149,7 +149,7 @@ SENSOR_DESCRIPTIONS: tuple[StigaSensorDescription, ...] = (
         icon="mdi:clock-outline",
         device_class=SensorDeviceClass.DURATION,
         state_class=SensorStateClass.TOTAL_INCREASING,
-        native_unit_of_measurement=UnitOfTime.SECONDS,
+        native_unit_of_measurement=UnitOfTime.HOURS,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     # --- Garden layout sensors (from REST /api/perimeters) ---
@@ -257,8 +257,7 @@ class StigaSensor(CoordinatorEntity[StigaCoordinator], SensorEntity):
         if key == "firmware_version":
             return self.coordinator.device.firmware_version or None
         if key == "total_work_time":
-            v = self.coordinator.device.total_work_time
-            return v if v else None
+            return self.coordinator.device.total_work_time
         info = self.coordinator.garden_info
         if key == "garden_area":
             if info and info.total_area_m2 is not None:

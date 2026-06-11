@@ -145,7 +145,7 @@ class StigaDevice:
     serial_number: str
     firmware_version: str = ""
     base_uuid: str = ""
-    total_work_time: int = 0   # seconds, from REST /garage total_work_time attribute
+    total_work_time: Optional[int] = None  # hours, from REST /garage attributes.total_work_time
 
     @property
     def unique_id(self) -> str:
@@ -340,7 +340,7 @@ class StigaRestClient:
                 serial_number=attrs.get("serial_number", ""),
                 firmware_version=attrs.get("firmware_version", ""),
                 base_uuid=attrs.get("base_uuid", ""),
-                total_work_time=int(attrs.get("total_work_time") or 0),
+                total_work_time=int(raw_twt) if (raw_twt := attrs.get("total_work_time")) is not None else None,
             )
             _LOGGER.debug(
                 "Found device: name=%s mac=%s broker=%s",
