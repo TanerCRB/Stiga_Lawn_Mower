@@ -1,0 +1,13 @@
+{
+  "domain": "stiga_lawn_mower",
+  "name": "Stiga Lawn Mower",
+  "version": "1.0.0",
+  "config_flow": true,
+  "documentation": "https://github.com/TanerCRB/StigaLawnMower",
+  "issue_tracker": "https://github.com/TanerCRB/StigaLawnMower/issues",
+  "requirements": ["paho-mqtt>=1.6.1", "aiohttp>=3.8.0"],
+  "dependencies": [],
+  "codeowners": ["@TanerCRB"],
+  "iot_class": "cloud_push",
+  "homeassistant": "2025.1.0"
+}

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(gh api *)",
+      "Bash(curl *)",
+      "Bash(python -m py_compile custom_components/stiga/const.py)",
+      "Bash(python -m py_compile custom_components/stiga/protobuf.py)",
+      "Bash(python -m py_compile custom_components/stiga/api.py)",
+      "Bash(python -m py_compile custom_components/stiga/coordinator.py)",
+      "Bash(python -m py_compile custom_components/stiga/sensor.py)",
+      "PowerShell(cd \"F:\\\\AI Code\\\\HA Stiga\"; $files = @\\(\"custom_components/stiga/const.py\",\"custom_components/stiga/protobuf.py\",\"custom_components/stiga/api.py\",\"custom_components/stiga/coordinator.py\",\"custom_components/stiga/sensor.py\",\"custom_components/stiga/binary_sensor.py\",\"custom_components/stiga/button.py\",\"custom_components/stiga/switch.py\",\"custom_components/stiga/number.py\",\"custom_components/stiga/select.py\"\\); foreach \\($f in $files\\) { $result = python -m py_compile $f 2>&1; if \\($LASTEXITCODE -eq 0\\) { Write-Host \"OK: $f\" } else { Write-Host \"ERROR: $f - $result\" } })",
+      "PowerShell(New-Item *)",
+      "PowerShell(Rename-Item *)",
+      "PowerShell(Copy-Item *)"
+    ]
+  }
+}

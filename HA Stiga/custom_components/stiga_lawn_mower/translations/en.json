@@ -1,0 +1,71 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Stiga",
+        "description": "Enter your STIGA.GO app credentials.",
+        "data": {
+          "email": "Email address",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid email or password.",
+      "cannot_connect": "Failed to connect to the Stiga cloud. Check your network connection."
+    },
+    "abort": {
+      "already_configured": "This Stiga account is already configured."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery": { "name": "Battery" },
+      "status": { "name": "Status" },
+      "garden_completed": { "name": "Garden Completion" },
+      "zone": { "name": "Current Zone" },
+      "zone_completed": { "name": "Zone Progress" },
+      "battery_capacity": { "name": "Battery Capacity" },
+      "cutting_height": { "name": "Cutting Height (sensor)" },
+      "gps_satellites": { "name": "GPS Satellites" },
+      "gps_coverage": { "name": "GPS Coverage" },
+      "rtk_quality": { "name": "RTK Quality" },
+      "rssi": { "name": "RSSI" },
+      "rsrp": { "name": "RSRP" },
+      "rsrq": { "name": "RSRQ" },
+      "signal_quality": { "name": "Signal Quality" },
+      "firmware_version": { "name": "Firmware Version" },
+      "total_work_time": { "name": "Total Work Time" }
+    },
+    "binary_sensor": {
+      "cloud_connection": { "name": "Cloud Connection" },
+      "docked": { "name": "Docked" },
+      "charging": { "name": "Charging" },
+      "error": { "name": "Error" },
+      "lid": { "name": "Lid" },
+      "rain_sensor": { "name": "Rain Sensor Active" },
+      "lift_sensor": { "name": "Lift Sensor" },
+      "bump_sensor": { "name": "Bump Sensor" },
+      "slope_sensor": { "name": "Slope Sensor" }
+    },
+    "switch": {
+      "rain_sensor": { "name": "Rain Sensor" },
+      "anti_theft": { "name": "Anti-Theft" },
+      "keyboard_lock": { "name": "Keyboard Lock" },
+      "push_notifications": { "name": "Push Notifications" },
+      "obstacle_notifications": { "name": "Obstacle Notifications" },
+      "smart_cut_height": { "name": "Smart Cutting Height" },
+      "long_exit": { "name": "Long Exit" }
+    },
+    "number": {
+      "cutting_height_ctrl": { "name": "Cutting Height" }
+    },
+    "select": {
+      "rain_delay": { "name": "Rain Delay" }
+    },
+    "button": {
+      "calibrate_blades": { "name": "Calibrate Blades" },
+      "refresh_status": { "name": "Refresh Status" }
+    }
+  }
+}
