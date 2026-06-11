@@ -1,0 +1,8 @@
+{
+  "name": "Stiga Lawn Mower",
+  "domain": "stiga_lawn_mower",
+  "documentation": "https://github.com/TanerCRB/StigaLawnMower/blob/main/README.md",
+  "issue_tracker": "https://github.com/TanerCRB/StigaLawnMower/issues",
+  "homeassistant": "2023.9.0",
+  "iot_class": "cloud_push"
+}

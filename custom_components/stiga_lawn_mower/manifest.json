@@ -3,7 +3,7 @@
   "name": "Stiga Lawn Mower",
   "version": "1.0.0",
   "config_flow": true,
-  "documentation": "https://github.com/TanerCRB/StigaLawnMower",
+  "documentation": "https://github.com/TanerCRB/StigaLawnMower/blob/main/README.md",
   "issue_tracker": "https://github.com/TanerCRB/StigaLawnMower/issues",
   "requirements": ["paho-mqtt>=1.6.1", "aiohttp>=3.8.0"],
   "dependencies": [],

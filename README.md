@@ -195,3 +195,6 @@ MIT License — see [LICENSE](LICENSE).
 [maintenance-shield]: https://img.shields.io/badge/maintainer-%40TanerCRB-blue.svg?style=for-the-badge
 [releases-shield]: https://img.shields.io/github/release/TanerCRB/StigaLawnMower.svg?style=for-the-badge
 [releases]: https://github.com/TanerCRB/StigaLawnMower/releases
+[source]: https://github.com/TanerCRB/StigaLawnMower/tree/main/custom_components/stiga_lawn_mower
+[documentation]: https://github.com/TanerCRB/StigaLawnMower/blob/main/README.md
+[issues]: https://github.com/TanerCRB/StigaLawnMower/issues

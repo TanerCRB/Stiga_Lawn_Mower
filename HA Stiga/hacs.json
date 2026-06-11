@@ -1,8 +1,0 @@
-{
-  "name": "Stiga Lawn Mower",
-  "domain": "stiga_lawn_mower",
-  "documentation": "https://github.com/your-username/ha-stiga",
-  "issue_tracker": "https://github.com/your-username/ha-stiga/issues",
-  "homeassistant": "2023.9.0",
-  "iot_class": "cloud_push"
-}
