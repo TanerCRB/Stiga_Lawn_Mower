@@ -287,6 +287,142 @@ These values change only when you remap your garden in the STIGA.GO app. To refr
 
 ---
 
+## Lovelace Card
+
+A custom Lovelace card is included in the `lovelace/` folder. It shows live status, battery, garden progress, a map with the robot's real-time position and heading, sensor stats, and Start / Stop / Dock buttons — all in one card.
+
+![Card layout: status badge, battery bar, map, stats grid, action buttons](https://raw.githubusercontent.com/TanerCRB/Stiga_Lawn_Mower/main/lovelace/preview.png)
+
+### Installation
+
+#### Step 1 — Copy the JS file
+
+Copy `lovelace/stiga-robot-card.js` to the `www/` folder inside your Home Assistant config directory.
+
+| HA installation type | Path |
+|---|---|
+| Home Assistant OS / Supervised | `/config/www/stiga-robot-card.js` |
+| Docker | `<your-config-mount>/www/stiga-robot-card.js` |
+| Core (venv) | `<config-dir>/www/stiga-robot-card.js` |
+
+If the `www/` folder does not exist, create it. You can upload the file via the HA **File editor** add-on, **Samba/CIFS** share, or SSH.
+
+#### Step 2 — Register the resource
+
+1. Go to **Settings → Dashboards**.
+2. Click the **three-dot menu** (top-right) → **Resources**.
+3. Click **Add resource** and fill in:
+   - **URL:** `/local/stiga-robot-card.js`
+   - **Resource type:** JavaScript module
+4. Click **Create**.
+
+> If you do not see the Resources option, enable **Advanced mode** first: click your profile picture (bottom-left) → turn on **Advanced mode**.
+
+#### Step 3 — Refresh the browser
+
+Press **Ctrl+F5** (or **Cmd+Shift+R** on macOS) to force a hard reload. A normal refresh is not enough — the browser must discard the cached JS bundle.
+
+#### Step 4 — Add the card to a dashboard
+
+1. Open a dashboard → click the **pencil icon** (Edit dashboard).
+2. Click **+ Add card** → scroll to the bottom → **Manual**.
+3. Paste the YAML configuration (see below) and click **Save**.
+
+### Card configuration
+
+```yaml
+type: custom:stiga-robot-card
+entity_prefix: bob        # robot name from STIGA app, lowercase
+```
+
+Replace `bob` with the prefix that matches your robot's entity IDs.
+
+#### How to find the correct `entity_prefix`
+
+1. Go to **Developer Tools** (icon in the HA sidebar) → **States** tab.
+2. In the filter box at the top, type `_status`.
+3. Look for an entity named `sensor.<something>_status` whose friendly name matches your robot.
+4. The `<something>` part (everything before `_status`) is your `entity_prefix`.
+
+> Example: if you see `sensor.bob_status` → use `entity_prefix: bob`.
+> If HA renamed the entity to `sensor.bob_status_2`, the prefix is still `bob` — see the override options below.
+
+The card auto-discovers all entity IDs using the prefix:
+
+| Entity used | Auto-generated ID |
+|---|---|
+| Status | `sensor.<prefix>_status` |
+| Battery | `sensor.<prefix>_battery` |
+| Garden Completion | `sensor.<prefix>_garden_completed` |
+| Current Zone | `sensor.<prefix>_zone` |
+| Zone Progress | `sensor.<prefix>_zone_completed` |
+| GPS Satellites | `sensor.<prefix>_gps_satellites` |
+| RTK Quality | `sensor.<prefix>_rtk_quality` |
+| RSSI | `sensor.<prefix>_rssi` |
+| Garden Area | `sensor.<prefix>_garden_area` |
+| Cloud Connection | `binary_sensor.<prefix>_cloud_connection` |
+| GPS Position | `device_tracker.<prefix>_location` |
+| Mower controls | `lawn_mower.<prefix>` |
+
+If HA renamed any entity, override it individually:
+
+```yaml
+type: custom:stiga-robot-card
+entity_prefix: bob
+tracker: device_tracker.my_custom_tracker_name
+lawn_mower: lawn_mower.garden_robot
+```
+
+### Features
+
+| Feature | Notes |
+|---|---|
+| **Status badge** | Color-coded label (green/blue/yellow/red/purple); pulses when mowing or in error |
+| **Battery bar** | Green → yellow → red as charge drops; shows % |
+| **Garden progress** | Blue progress bar showing garden completion % |
+| **Live map** | OpenStreetMap tiles via Leaflet.js; robot shown as arrow pointing in direction of travel |
+| **Heading arrow** | Arrow color matches status color and rotates with robot heading (0° = north) |
+| **Stats grid** | Zone, Zone %, Satellites, RTK quality, Garden area (m²), RSSI |
+| **Action buttons** | Start / Stop / Dock — call `lawn_mower` services directly |
+
+### Map notes
+
+The map requires base station coordinates to be configured (set during integration setup or via **Reconfigure**). Without them the map section shows a placeholder message.
+
+The map uses OpenStreetMap tiles — an internet connection is required to load the tile images. The Leaflet.js library is loaded from `unpkg.com` on first use.
+
+### Troubleshooting the card
+
+#### "Custom element doesn't exist: stiga-robot-card"
+
+This error appears when the card type is unknown to HA. Work through this checklist:
+
+1. **File is not in `www/`** — confirm `stiga-robot-card.js` exists at `<config>/www/stiga-robot-card.js`. A common mistake is placing it in a subfolder (e.g. `www/lovelace/`) while the resource URL still says `/local/stiga-robot-card.js`.
+2. **Resource not registered** — go to **Settings → Dashboards → ⋮ → Resources** and verify the entry `/local/stiga-robot-card.js` exists with type **JavaScript module**. If it is missing, add it.
+3. **Browser cache** — after adding the resource, press **Ctrl+F5** (hard reload). A normal page refresh reuses the old bundle and will not pick up the new file.
+4. **Wrong URL in resource** — the URL must start with `/local/`, not `/config/www/` or a full `http://` address.
+
+#### Map is blank / tiles do not load
+
+- The Leaflet map requires an internet connection to fetch OpenStreetMap tiles from `tile.openstreetmap.org`. Check that your HA host has outbound internet access.
+- If the map div appears but shows no robot arrow, base station coordinates are not set. Add them via **Settings → Devices & Services → Stiga Lawn Mower → ⋮ → Reconfigure**.
+
+#### Card loads but shows "unknown" for all sensors
+
+The `entity_prefix` does not match. Open **Developer Tools → States**, filter by `_status`, and find the correct prefix as described above.
+
+#### Action buttons do nothing
+
+The card calls `lawn_mower.start_mowing`, `lawn_mower.stop_mowing`, and `lawn_mower.dock` on the entity `lawn_mower.<prefix>`. If HA renamed your entity, add an explicit override:
+
+```yaml
+type: custom:stiga-robot-card
+entity_prefix: bob
+lawn_mower: lawn_mower.my_custom_entity_name
+```
+
+---
+
 ## Installation
 
 ### Via HACS (Recommended)
