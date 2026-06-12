@@ -106,7 +106,7 @@ All Stiga robots controllable via the **STIGA.GO app**:
 
 | Entity | Notes |
 |---|---|
-| **Location** | Robot's real-time GPS position on the HA map — updated live while mowing; requires base station coordinates (set during setup or via Reconfigure) |
+| **Location** | Robot's real-time GPS position on the HA map — updated live while mowing |
 
 ### Number Entity (Configuration)
 
@@ -144,20 +144,26 @@ All Stiga robots controllable via the **STIGA.GO app**:
 
 The integration exposes a `device_tracker` entity that shows the robot's real-time position on the HA map, updated live as the robot mows.
 
-**How it works:** The robot broadcasts its GPS position as a metre-offset from the base station (charging dock) via MQTT. The integration converts this offset to absolute GPS coordinates using the base station's known location.
+**How it works:** The robot broadcasts its GPS position as a metre-offset from the RTK coordinate origin via MQTT. The integration converts this offset to absolute GPS coordinates using the RTK reference, which is automatically extracted from the garden map data (ECEF coordinates embedded in the perimeter protobuf blob, field 5). No manual coordinate entry is required in most cases.
 
-#### Setting up base station coordinates
+#### RTK reference — automatic detection
 
-During initial setup or via **Reconfigure**, enter the GPS coordinates of your **charging station**:
+The integration determines the coordinate origin in this priority order:
+
+1. **ECEF from protobuf** — the garden map blob always contains the RTK antenna's exact ECEF coordinates (X/Y/Z in metres). This is converted to WGS84 automatically — the most accurate source.
+2. **API `referencePosition`** — some accounts include this field in the REST response. Used if ECEF is absent.
+3. **HA-configured base station coordinates** — manual fallback, set during setup or via Reconfigure. Only needed if both automatic sources are absent.
+
+In practice, automatic detection works for all robots that have a mapped garden. The manual coordinates act as a safety net for edge cases.
+
+#### Setting up base station coordinates (fallback only)
+
+If automatic detection fails (visible as a `WARNING` in the HA log), enter the GPS coordinates of your **RTK antenna** during initial setup or via **Reconfigure**:
 
 | Field | Example |
 |---|---|
 | Base station latitude | `54.131528` |
 | Base station longitude | `16.281694` |
-
-**How to find the coordinates:**
-- Google Maps: right-click on the charging station → copy the coordinates shown (e.g. `54.131528, 16.281694`)
-- Google Maps also shows DMS format (`54°07'53.5"N 16°16'54.1"E`) — this is accepted directly
 
 **Accepted formats:**
 
@@ -167,14 +173,11 @@ During initial setup or via **Reconfigure**, enter the GPS coordinates of your *
 | Decimal degrees (comma) | `54,131528` |
 | Degrees°Minutes'Seconds" | `54°07'53.5"N` |
 
-If you skip this step, the `Location` entity still exists but shows `not_home` without map coordinates. Add them later via **Settings → Devices & Services → Stiga Lawn Mower → ⋮ → Reconfigure**.
-
 #### Entity state
 
-The entity state follows standard HA device tracker behaviour:
 - **`home`** — robot is within the configured Home zone
-- **`not_home`** — robot is outside the Home zone (normal state while mowing in the garden)
-- **`unknown`** — base station coordinates not configured
+- **`not_home`** — robot is outside the Home zone (normal state while mowing)
+- **`unknown`** — RTK reference coordinates not yet available
 
 #### Visualising the position
 
@@ -187,20 +190,28 @@ entities:
 hours_to_show: 1
 ```
 
-Replace `<robot_name>` with the name of your robot as set in the STIGA app (e.g. `device_tracker.bob_location`). The `hours_to_show: 1` option draws the mowing trail for the past hour.
+Replace `<robot_name>` with the robot name from the STIGA app (e.g. `device_tracker.bob_location`). The `hours_to_show: 1` option draws the mowing trail for the past hour.
 
 **Option 2 — Map view** (HA sidebar)
 
 Navigate to **Map** in the HA sidebar — the robot appears as a pin alongside all other tracked devices.
 
+**Option 3 — Stiga Robot Card** (recommended)
+
+The included Lovelace card shows the robot on a satellite map together with mowing zone polygons, obstacle polygons, and RTK antenna marker. See [Lovelace Card](#lovelace-card) below.
+
 #### Extra attributes
 
 | Attribute | Description |
 |---|---|
-| `offset_lat_m` | Metres north/south from the charging station |
-| `offset_lon_m` | Metres east/west from the charging station |
+| `offset_lat_m` | Metres north/south from the RTK reference origin |
+| `offset_lon_m` | Metres east/west from the RTK reference origin |
 | `heading` | Compass bearing the robot is facing (0–360°) |
-| `distance_m` | Straight-line distance from the charging station |
+| `distance_m` | Straight-line distance from the RTK reference origin |
+| `base_station_lat` | Latitude of the RTK antenna (auto-detected) |
+| `base_station_lon` | Longitude of the RTK antenna (auto-detected) |
+| `zone_polygons` | List of mowing zone polygons `[{id, name, polygon: [[lat,lon],...]}]` |
+| `obstacle_polygons` | List of obstacle polygons `[{id, name, polygon: [[lat,lon],...]}]` |
 
 ---
 
@@ -332,7 +343,45 @@ Press **Ctrl+F5** (or **Cmd+Shift+R** on macOS) to force a hard reload. A normal
 
 ```yaml
 type: custom:stiga-robot-card
-entity_prefix: bob        # robot name from STIGA app, lowercase
+entity_prefix: bob        # required — robot name from STIGA app, lowercase
+columns: 8                # optional — card width (2–12 columns, default: full width)
+map_height: 200           # optional — map height in px (default: 280)
+show_map: false           # optional — hide the map section (default: true)
+show_progress: false      # optional — hide battery & garden bars (default: true)
+show_stats: false         # optional — hide stats grid (default: true)
+show_buttons: false       # optional — hide action buttons (default: true)
+dock_lat: 54.131500       # optional — charging station latitude
+dock_lon: 16.281700       # optional — charging station longitude
+dock_label: My Dock       # optional — charging station tooltip (default: "Charging Dock")
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `entity_prefix` | string | — | **Required.** Robot name from the STIGA app (lowercase, spaces → underscores) |
+| `columns` | number | full width | Card width in grid columns (1–12). **Only works in the HA Sections dashboard** (2024.3+). In Masonry, width is set by the dashboard column layout. |
+| `map_height` | number | `280` | Height of the map section in pixels |
+| `show_map` | boolean | `true` | Show/hide the satellite map |
+| `show_progress` | boolean | `true` | Show/hide battery and garden progress bars |
+| `show_stats` | boolean | `true` | Show/hide the 6-cell stats grid |
+| `show_buttons` | boolean | `true` | Show/hide Start / Stop / Dock buttons |
+| `dock_lat` | number | — | Latitude of the physical charging dock (orange pin marker) |
+| `dock_lon` | number | — | Longitude of the physical charging dock (orange pin marker) |
+| `dock_label` | string | `Charging Dock` | Tooltip shown when hovering over the charging dock marker |
+
+> **Dashboard column grid:** The HA Sections view uses a 12-column grid. `columns: 6` = half width, `columns: 4` = one third, `columns: 12` = full width. The minimum is 2 columns.
+
+#### Charging dock marker
+
+The RTK antenna (blue house marker) is automatically placed at the antenna's exact GPS position — this may differ from the physical charging station if the antenna is mounted elsewhere (e.g. on a wall or mast for better signal coverage).
+
+To mark the actual charging station location on the map, add `dock_lat` and `dock_lon` to the card config. The coordinates can be obtained from Google Maps by right-clicking on the dock location and copying the displayed latitude/longitude.
+
+```yaml
+type: custom:stiga-robot-card
+entity_prefix: bob
+dock_lat: 54.131500
+dock_lon: 16.281700
+dock_label: Charging Station
 ```
 
 Replace `bob` with the prefix that matches your robot's entity IDs.
@@ -380,16 +429,30 @@ lawn_mower: lawn_mower.garden_robot
 | **Status badge** | Color-coded label (green/blue/yellow/red/purple); pulses when mowing or in error |
 | **Battery bar** | Green → yellow → red as charge drops; shows % |
 | **Garden progress** | Blue progress bar showing garden completion % |
-| **Live map** | OpenStreetMap tiles via Leaflet.js; robot shown as arrow pointing in direction of travel |
-| **Heading arrow** | Arrow color matches status color and rotates with robot heading (0° = north) |
+| **Live map** | Google satellite imagery via Leaflet.js |
+| **Robot marker** | Arrow pointing in direction of travel; color matches status |
+| **RTK antenna marker** | Blue house icon at the RTK antenna's exact GPS position (auto-detected) |
+| **Charging dock marker** | Orange pin at the physical charging station — shown when `dock_lat`/`dock_lon` are set in config |
+| **Zone polygons** | Green filled polygons for each mowing zone, with zone name tooltip |
+| **Obstacle polygons** | Red dashed polygons for mapped obstacles |
 | **Stats grid** | Zone, Zone %, Satellites, RTK quality, Garden area (m²), RSSI |
 | **Action buttons** | Start / Stop / Dock — call `lawn_mower` services directly |
 
 ### Map notes
 
-The map requires base station coordinates to be configured (set during integration setup or via **Reconfigure**). Without them the map section shows a placeholder message.
+The map is displayed automatically when the garden map has been set up in the STIGA.GO app. Zone polygons and the RTK antenna position are derived from the ECEF coordinates embedded in the garden data — no manual coordinate entry is needed.
 
-The map uses OpenStreetMap tiles — an internet connection is required to load the tile images. The Leaflet.js library is loaded from `unpkg.com` on first use.
+The map uses Google satellite imagery (hybrid: satellite + road labels). An internet connection is required to load map tiles. The Leaflet.js library is loaded from `unpkg.com` on first use.
+
+**Markers on the map:**
+
+| Marker | Description |
+|---|---|
+| Coloured arrow | Robot's live position and heading |
+| Blue house 🏠 | RTK antenna position (auto-detected from garden data) |
+| Orange pin ⚡ | Physical charging dock (optional — set `dock_lat`/`dock_lon` in card config) |
+| Green polygon | Mowing zone |
+| Red dashed polygon | Obstacle / exclusion zone |
 
 ### Troubleshooting the card
 
@@ -404,8 +467,9 @@ This error appears when the card type is unknown to HA. Work through this checkl
 
 #### Map is blank / tiles do not load
 
-- The Leaflet map requires an internet connection to fetch OpenStreetMap tiles from `tile.openstreetmap.org`. Check that your HA host has outbound internet access.
-- If the map div appears but shows no robot arrow, base station coordinates are not set. Add them via **Settings → Devices & Services → Stiga Lawn Mower → ⋮ → Reconfigure**.
+- The Leaflet map requires an internet connection to fetch Google satellite tiles. Check that your HA host has outbound internet access.
+- If the map div appears but shows no robot arrow, the RTK reference coordinates could not be determined. Check the HA log for a `WARNING` from `custom_components.stiga_lawn_mower` mentioning `RTK reference`. As a fallback, enter base station coordinates via **Settings → Devices & Services → Stiga Lawn Mower → ⋮ → Reconfigure**.
+- Zone polygons only appear if the garden has been mapped in the STIGA.GO app.
 
 #### Card loads but shows "unknown" for all sensors
 
