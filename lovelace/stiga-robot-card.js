@@ -364,6 +364,8 @@
       this._zoneLayers    = [];
       this._obstacleLayers = [];
       this._perimeterKey  = null;
+      this._dockLat       = null;
+      this._dockLon       = null;
     }
 
     /* Called once by HA when the card config is parsed */
@@ -624,8 +626,17 @@
       const zones    = tracker?.attributes?.zone_polygons     || [];
       const obstacles = tracker?.attributes?.obstacle_polygons || [];
 
+      // When docked/charging the robot IS at the dock — remember that position.
+      // Falls back to HA-configured base coords if robot was never seen docked.
+      if ((statusVal === 'charging' || statusVal === 'docked') && lat != null && lon != null) {
+        this._dockLat = lat;
+        this._dockLon = lon;
+      }
+      const dockLat = this._dockLat ?? baseLat;
+      const dockLon = this._dockLon ?? baseLon;
+
       this._updatePerimeters(zones, obstacles);
-      this._updateBaseMarker(baseLat, baseLon);
+      this._updateBaseMarker(dockLat, dockLon);
       this._updateMap(lat, lon, heading, cfg.color);
     }
 
