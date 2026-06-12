@@ -64,6 +64,21 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         return self._base_longitude
 
     @property
+    def reference_lat(self) -> float | None:
+        """Best available RTK reference latitude.
+
+        Priority: device last_position from API (auto-detected) > HA-configured base coords.
+        The device's last GPS fix is a more accurate proxy for the RTK map origin than
+        manually entered coordinates.
+        """
+        return self.device.last_position_lat if self.device.last_position_lat is not None else self._base_latitude
+
+    @property
+    def reference_lon(self) -> float | None:
+        """Best available RTK reference longitude (see reference_lat)."""
+        return self.device.last_position_lon if self.device.last_position_lon is not None else self._base_longitude
+
+    @property
     def garden_info(self) -> StigaGardenInfo | None:
         return self._garden_info
 
@@ -81,8 +96,8 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         try:
             self._garden_info, self._perimeter_raw = await self._rest.get_perimeters(
                 self.device,
-                fallback_lat=self._base_latitude,
-                fallback_lon=self._base_longitude,
+                fallback_lat=self.reference_lat,
+                fallback_lon=self.reference_lon,
             )
         except Exception as exc:
             _LOGGER.debug("Failed to fetch garden perimeters: %s", exc)

@@ -149,6 +149,8 @@ class StigaDevice:
     firmware_version: str = ""
     base_uuid: str = ""
     total_work_time: Optional[int] = None  # hours, from REST /garage attributes.total_work_time
+    last_position_lat: Optional[float] = None  # absolute GPS from /api/garage, used as RTK reference proxy
+    last_position_lon: Optional[float] = None
 
     @property
     def unique_id(self) -> str:
@@ -257,6 +259,22 @@ class StigaGardenInfo:
 def _fixed64_to_double(val: int) -> float:
     """Reinterpret a uint64 (from protobuf fixed64) as an IEEE 754 little-endian double."""
     return struct.unpack("<d", val.to_bytes(8, "little"))[0]
+
+
+def _parse_last_position(attrs: dict) -> dict:
+    """Extract last_position lat/lon from garage API device attributes.
+
+    The cloud stores no dedicated RTK base coordinates — the device's last GPS
+    fix (recorded near the dock) is the best available proxy, matching how the
+    official JS client seeds its reference position.
+    """
+    coords = (attrs.get("last_position") or {}).get("coordinates")
+    if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+        try:
+            return {"last_position_lat": float(coords[0]), "last_position_lon": float(coords[1])}
+        except (TypeError, ValueError):
+            pass
+    return {}
 
 
 def _zigzag(n: int) -> int:
@@ -467,6 +485,7 @@ class StigaRestClient:
                 firmware_version=attrs.get("firmware_version", ""),
                 base_uuid=attrs.get("base_uuid", ""),
                 total_work_time=int(raw_twt) if (raw_twt := attrs.get("total_work_time")) is not None else None,
+                **_parse_last_position(attrs),
             )
             _LOGGER.debug(
                 "Found device: name=%s mac=%s broker=%s",
@@ -505,14 +524,14 @@ class StigaRestClient:
                     ref_lon = fallback_lon
                     _LOGGER.debug(
                         "Perimeter API missing referencePosition — "
-                        "using HA-configured base station coordinates (%.6f, %.6f) as geometry reference",
+                        "using device last_position / HA base coords (%.6f, %.6f) as geometry reference",
                         ref_lat, ref_lon,
                     )
                 else:
                     _LOGGER.warning(
-                        "Perimeter response missing referencePosition and no HA base coordinates configured — "
+                        "Perimeter response missing referencePosition and no reference coordinates available — "
                         "base station marker and zone polygons will not be shown on the map. "
-                        "Configure base station coordinates in the integration settings "
+                        "If this persists, configure base station coordinates in the integration settings "
                         "(Settings → Devices & Services → Stiga → Configure). "
                         "preview keys present: %s",
                         list(preview.keys()),

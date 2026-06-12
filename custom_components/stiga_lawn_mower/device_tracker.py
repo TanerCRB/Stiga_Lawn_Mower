@@ -49,26 +49,26 @@ class StigaDeviceTracker(CoordinatorEntity[StigaCoordinator], TrackerEntity):
 
     @property
     def latitude(self) -> float | None:
-        base_lat = self.coordinator.base_latitude
-        base_lon = self.coordinator.base_longitude
-        if base_lat is None or base_lon is None:
+        ref_lat = self.coordinator.reference_lat
+        ref_lon = self.coordinator.reference_lon
+        if ref_lat is None or ref_lon is None:
             return None
         pos = self.coordinator.position
         if pos is None:
             return None
-        return base_lat + pos.offset_lat_m / _LAT_M_PER_DEG
+        return ref_lat + pos.offset_lat_m / _LAT_M_PER_DEG
 
     @property
     def longitude(self) -> float | None:
-        base_lat = self.coordinator.base_latitude
-        base_lon = self.coordinator.base_longitude
-        if base_lat is None or base_lon is None:
+        ref_lat = self.coordinator.reference_lat
+        ref_lon = self.coordinator.reference_lon
+        if ref_lat is None or ref_lon is None:
             return None
         pos = self.coordinator.position
         if pos is None:
             return None
-        lon_m_per_deg = _LAT_M_PER_DEG * math.cos(math.radians(base_lat))
-        return base_lon + pos.offset_lon_m / lon_m_per_deg
+        lon_m_per_deg = _LAT_M_PER_DEG * math.cos(math.radians(ref_lat))
+        return ref_lon + pos.offset_lon_m / lon_m_per_deg
 
     @property
     def location_accuracy(self) -> int:
@@ -92,7 +92,7 @@ class StigaDeviceTracker(CoordinatorEntity[StigaCoordinator], TrackerEntity):
             attrs["distance_m"] = round(
                 math.hypot(pos.offset_lat_m, pos.offset_lon_m), 2
             )
-        if self.coordinator.base_latitude is None:
+        if self.coordinator.reference_lat is None:
             attrs["note"] = "Configure base station coordinates to show GPS position on map"
 
         info = self.coordinator.garden_info

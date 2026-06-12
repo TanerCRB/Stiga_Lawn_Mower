@@ -49,6 +49,8 @@ async def async_get_config_entry_diagnostics(
                     "firmware_version": device.firmware_version,
                     "broker_id": device.broker_id,
                     "total_work_time_s": device.total_work_time,
+                    "last_position_lat": device.last_position_lat,
+                    "last_position_lon": device.last_position_lon,
                 },
                 "mqtt_connected": coord.mqtt_connected,
                 "status": asdict(status) if status else None,
