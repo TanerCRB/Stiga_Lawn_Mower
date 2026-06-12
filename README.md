@@ -402,7 +402,9 @@ Contributions are welcome. Open an issue or pull request on GitHub.
 
 ## License
 
-MIT License — see [LICENSE](LICENSE).
+[CC BY-NC-SA 4.0](LICENSE) — Attribution-NonCommercial-ShareAlike 4.0 International.
+
+This project is a derivative of [stiga-api](https://github.com/matthewgream/stiga-api) by Matthew Graham, licensed under CC BY-NC-SA 4.0. This work is distributed under the same license.
 
 ---
 
@@ -410,7 +412,7 @@ MIT License — see [LICENSE](LICENSE).
 [commits]: https://github.com/TanerCRB/Stiga_Lawn_Mower/commits/main
 [hacs]: https://github.com/hacs/integration
 [hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge
-[license-shield]: https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge
+[license-shield]: https://img.shields.io/badge/license-CC%20BY--NC--SA%204.0-lightgrey.svg?style=for-the-badge
 [maintenance-shield]: https://img.shields.io/badge/maintainer-%40TanerCRB-blue.svg?style=for-the-badge
 [releases-shield]: https://img.shields.io/github/v/release/TanerCRB/Stiga_Lawn_Mower?style=for-the-badge
 [releases]: https://github.com/TanerCRB/Stiga_Lawn_Mower/releases
