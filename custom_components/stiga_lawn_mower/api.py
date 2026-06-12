@@ -494,11 +494,29 @@ class StigaRestClient:
             ref_lat: float | None = ref_pos.get("lat")
             ref_lon: float | None = ref_pos.get("lng")
 
+            if ref_lat is None or ref_lon is None:
+                _LOGGER.warning(
+                    "Perimeter response missing referencePosition — "
+                    "base station marker and zone polygons will not be shown on the map. "
+                    "Make sure the garden is fully mapped in the Stiga app. "
+                    "preview keys present: %s",
+                    list(preview.keys()),
+                )
+
             # Decode polygon geometry (requires referencePosition)
             zone_geo_list: list[dict] = []
             obs_geo_list: list[dict] = []
             if ref_lat is not None and ref_lon is not None:
                 zone_geo_list, obs_geo_list = _decode_perimeter_geometry(attrs, ref_lat, ref_lon)
+                if not zone_geo_list:
+                    _LOGGER.warning(
+                        "referencePosition found (%.6f, %.6f) but no zone polygons decoded — "
+                        "data_points blob may be empty or use an unexpected protobuf layout. "
+                        "dp_data present: %s, length: %s",
+                        ref_lat, ref_lon,
+                        bool((attrs.get("data_points") or {}).get("data")),
+                        len((attrs.get("data_points") or {}).get("data") or []),
+                    )
             zone_polygon_map = {z["id"]: z["polygon"] for z in zone_geo_list}
 
             zones: list[StigaZoneInfo] = []
