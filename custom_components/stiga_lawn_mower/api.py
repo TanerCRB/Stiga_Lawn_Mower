@@ -261,6 +261,53 @@ def _fixed64_to_double(val: int) -> float:
     return struct.unpack("<d", val.to_bytes(8, "little"))[0]
 
 
+def _ecef_to_wgs84(x: float, y: float, z: float) -> tuple[float, float]:
+    """Convert ECEF (metres) to WGS84 (lat, lon) decimal degrees.
+
+    Uses Bowring's iterative method — converges in 4-5 iterations.
+    """
+    a = 6378137.0           # WGS84 semi-major axis
+    e2 = 0.00669437999014   # first eccentricity squared
+    lon_deg = math.degrees(math.atan2(y, x))
+    p = math.hypot(x, y)
+    lat = math.atan2(z, p * (1.0 - e2))
+    for _ in range(5):
+        sin_lat = math.sin(lat)
+        N = a / math.sqrt(1.0 - e2 * sin_lat * sin_lat)
+        lat = math.atan2(z + e2 * N * sin_lat, p)
+    return math.degrees(lat), lon_deg
+
+
+def _decode_ecef_reference(attrs: dict) -> tuple[float | None, float | None]:
+    """Extract the ECEF reference point from field 5 of the perimeter protobuf blob.
+
+    The blob layout (reverse-engineered, confirmed in stiga-probe-perimeter-points.js):
+      field 1 = zones, field 2 = paths, field 3 = obstacles, field 5 = ECEF of reference
+    Field 5 is a sub-message {1: x_m, 2: y_m, 3: z_m} (fixed64 doubles, metres).
+    This is the highest-precision source for the RTK coordinate origin — more accurate
+    than the API's preview.referencePosition (which may be rounded or absent).
+    """
+    dp_data = (attrs.get("data_points") or {}).get("data")
+    if not dp_data:
+        return None, None
+    try:
+        outer = decode_protobuf_repeated(bytes(dp_data))
+        ecef_entries = outer.get(5, [])
+        if not ecef_entries or not isinstance(ecef_entries[0], bytes):
+            return None, None
+        ef = decode_protobuf_repeated(ecef_entries[0])
+        x = _fixed64_to_double(ef[1][0])
+        y = _fixed64_to_double(ef[2][0])
+        z = _fixed64_to_double(ef[3][0])
+        lat, lon = _ecef_to_wgs84(x, y, z)
+        # Sanity check: must be plausible Earth-surface coordinates
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            return None, None
+        return lat, lon
+    except Exception:
+        return None, None
+
+
 def _parse_last_position(attrs: dict) -> dict:
     """Extract last_position lat/lon from garage API device attributes.
 
@@ -514,30 +561,44 @@ class StigaRestClient:
             zones_summary = preview.get("zones") or {}
             obstacles_summary = preview.get("obstacles") or {}
 
-            ref_pos = preview.get("referencePosition") or {}
-            ref_lat: float | None = ref_pos.get("lat")
-            ref_lon: float | None = ref_pos.get("lng")
+            # --- Determine RTK reference position (priority order) ---
+            # 1. ECEF from protobuf field 5 — embedded in the data, highest precision
+            # 2. API preview.referencePosition — may be rounded/absent
+            # 3. HA-configured base coordinates — manual fallback
 
-            if ref_lat is None or ref_lon is None:
-                if fallback_lat is not None and fallback_lon is not None:
-                    ref_lat = fallback_lat
-                    ref_lon = fallback_lon
-                    _LOGGER.debug(
-                        "Perimeter API missing referencePosition — "
-                        "using device last_position / HA base coords (%.6f, %.6f) as geometry reference",
-                        ref_lat, ref_lon,
-                    )
-                else:
-                    _LOGGER.warning(
-                        "Perimeter response missing referencePosition and no reference coordinates available — "
-                        "base station marker and zone polygons will not be shown on the map. "
-                        "If this persists, configure base station coordinates in the integration settings "
-                        "(Settings → Devices & Services → Stiga → Configure). "
-                        "preview keys present: %s",
-                        list(preview.keys()),
-                    )
+            ref_lat: float | None = None
+            ref_lon: float | None = None
+            ref_source: str = "none"
 
-            # Decode polygon geometry (requires referencePosition)
+            ecef_lat, ecef_lon = _decode_ecef_reference(attrs)
+            if ecef_lat is not None:
+                ref_lat, ref_lon = ecef_lat, ecef_lon
+                ref_source = "ECEF (protobuf field 5)"
+            else:
+                ref_pos = preview.get("referencePosition") or {}
+                api_lat: float | None = ref_pos.get("lat")
+                api_lon: float | None = ref_pos.get("lng")
+                if api_lat is not None and api_lon is not None:
+                    ref_lat, ref_lon = api_lat, api_lon
+                    ref_source = "API referencePosition"
+                elif fallback_lat is not None and fallback_lon is not None:
+                    ref_lat, ref_lon = fallback_lat, fallback_lon
+                    ref_source = "HA base config (fallback)"
+
+            if ref_lat is not None:
+                _LOGGER.debug(
+                    "RTK reference for %s: (%.7f, %.7f) — source: %s",
+                    device.name, ref_lat, ref_lon, ref_source,
+                )
+            else:
+                _LOGGER.warning(
+                    "No RTK reference available for %s — zone polygons will not be shown. "
+                    "Configure base station coordinates in integration settings if ECEF field "
+                    "and API referencePosition are both absent. Preview keys: %s",
+                    device.name, list(preview.keys()),
+                )
+
+            # Decode polygon geometry
             zone_geo_list: list[dict] = []
             obs_geo_list: list[dict] = []
             if ref_lat is not None and ref_lon is not None:
