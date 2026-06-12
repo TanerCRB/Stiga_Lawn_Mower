@@ -65,12 +65,22 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
 
     @property
     def reference_lat(self) -> float | None:
-        """RTK reference latitude — from HA-configured base station coordinates."""
+        """RTK reference latitude.
+
+        Uses the referencePosition from the perimeter API when available — this is
+        the same value used to decode zone/obstacle polygon coordinates, so robot
+        position and polygons always share the same coordinate origin.
+        Falls back to the HA-configured base station coordinates.
+        """
+        if self._garden_info is not None and self._garden_info.reference_lat is not None:
+            return self._garden_info.reference_lat
         return self._base_latitude
 
     @property
     def reference_lon(self) -> float | None:
-        """RTK reference longitude — from HA-configured base station coordinates."""
+        """RTK reference longitude (see reference_lat)."""
+        if self._garden_info is not None and self._garden_info.reference_lon is not None:
+            return self._garden_info.reference_lon
         return self._base_longitude
 
     @property
