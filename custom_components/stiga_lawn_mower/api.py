@@ -475,7 +475,12 @@ class StigaRestClient:
             devices.append(device)
         return devices
 
-    async def get_perimeters(self, device: StigaDevice) -> tuple[StigaGardenInfo, dict | None]:
+    async def get_perimeters(
+        self,
+        device: StigaDevice,
+        fallback_lat: float | None = None,
+        fallback_lon: float | None = None,
+    ) -> tuple[StigaGardenInfo, dict | None]:
         """Fetch garden layout and raw attributes (needed for later PATCH calls)."""
         if not device.uuid or not device.base_uuid:
             _LOGGER.debug("Skipping perimeter fetch: device missing uuid or base_uuid")
@@ -495,13 +500,23 @@ class StigaRestClient:
             ref_lon: float | None = ref_pos.get("lng")
 
             if ref_lat is None or ref_lon is None:
-                _LOGGER.warning(
-                    "Perimeter response missing referencePosition — "
-                    "base station marker and zone polygons will not be shown on the map. "
-                    "Make sure the garden is fully mapped in the Stiga app. "
-                    "preview keys present: %s",
-                    list(preview.keys()),
-                )
+                if fallback_lat is not None and fallback_lon is not None:
+                    ref_lat = fallback_lat
+                    ref_lon = fallback_lon
+                    _LOGGER.debug(
+                        "Perimeter API missing referencePosition — "
+                        "using HA-configured base station coordinates (%.6f, %.6f) as geometry reference",
+                        ref_lat, ref_lon,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "Perimeter response missing referencePosition and no HA base coordinates configured — "
+                        "base station marker and zone polygons will not be shown on the map. "
+                        "Configure base station coordinates in the integration settings "
+                        "(Settings → Devices & Services → Stiga → Configure). "
+                        "preview keys present: %s",
+                        list(preview.keys()),
+                    )
 
             # Decode polygon geometry (requires referencePosition)
             zone_geo_list: list[dict] = []

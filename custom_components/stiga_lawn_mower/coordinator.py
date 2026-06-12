@@ -79,7 +79,11 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
         self._mqtt.add_position_callback(self._on_mqtt_position)
         await self._try_connect_mqtt()
         try:
-            self._garden_info, self._perimeter_raw = await self._rest.get_perimeters(self.device)
+            self._garden_info, self._perimeter_raw = await self._rest.get_perimeters(
+                self.device,
+                fallback_lat=self._base_latitude,
+                fallback_lon=self._base_longitude,
+            )
         except Exception as exc:
             _LOGGER.debug("Failed to fetch garden perimeters: %s", exc)
 
