@@ -594,11 +594,11 @@
 
     /* ── Mowing trail (session) ── */
     _updateTrail(lat, lon, statusVal) {
-      if (!this._map) return;
       const MOWING = new Set(['mowing', 'cutting_border', 'navigating_to_area',
                                'reaching_first_point', 'planning']);
-      const DOCKED  = new Set(['docked', 'charging']);
+      const DOCKED  = new Set(['docked', 'charging', 'waiting_for_command']);
 
+      // Accumulate trail positions even before the map is initialized
       if (MOWING.has(statusVal) && lat != null && !isNaN(lat)) {
         const last = this._trail[this._trail.length - 1];
         const moved = !last || Math.hypot(last[0] - lat, last[1] - lon) > 5e-6;
@@ -609,6 +609,8 @@
       } else if (DOCKED.has(statusVal)) {
         this._trail = [];
       }
+
+      if (!this._map) return;
 
       if (this._trail.length >= 2) {
         if (this._trailLayer) {
@@ -627,8 +629,8 @@
     /* ── Zone progress gradient fill ── */
     _updateZoneProgress(zoneNum, zonePct) {
       if (!this._map || !this._zoneLayers.length) return;
-      // zone sensor is 1-based; match by id first, fall back to 1-based index
-      const activeIdx = this._zoneData.findIndex(z => z.id === zoneNum);
+      // zone sensor is 1-based; match by id first (loose == handles string vs int), fall back to 1-based index
+      const activeIdx = this._zoneData.findIndex(z => z.id == zoneNum);
       const idx = activeIdx >= 0 ? activeIdx : (zoneNum != null ? zoneNum - 1 : -1);
 
       this._zoneLayers.forEach((poly, i) => {
@@ -650,13 +652,18 @@
         defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
         svg.insertBefore(defs, svg.firstChild);
       }
-      const id  = `mg-${path.getAttribute('data-leaflet-id') || Math.random().toString(36).slice(2)}`;
-      path.setAttribute('data-mg', id);
+      // Reuse the same gradient element per path (stored in data-mg); prevents
+      // accumulating orphaned <linearGradient> nodes in <defs> on every update.
+      let id = path.getAttribute('data-mg');
+      if (!id) {
+        id = `mg-${path._leaflet_id || Math.random().toString(36).slice(2)}`;
+        path.setAttribute('data-mg', id);
+      }
       let grad = svg.getElementById(id);
       if (!grad) {
         grad = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
         grad.id = id;
-        // bottom (y=1) → top (y=0) in objectBoundingBox units
+        // bottom (y=1) → top (y=0) in objectBoundingBox units (SVG default)
         grad.setAttribute('x1', '0'); grad.setAttribute('y1', '1');
         grad.setAttribute('x2', '0'); grad.setAttribute('y2', '0');
         defs.appendChild(grad);
@@ -672,8 +679,15 @@
     }
 
     _clearGradient(path) {
+      const id = path.getAttribute('data-mg');
+      if (id) {
+        const grad = path.ownerSVGElement?.getElementById(id);
+        if (grad) grad.remove();
+        path.removeAttribute('data-mg');
+      }
       path.setAttribute('fill', '#34a853');
-      path.style.fillOpacity = '0.15';
+      path.setAttribute('fill-opacity', '0.15');
+      path.style.fillOpacity = '';
     }
 
     /* ── Next schedule window ── */
@@ -684,9 +698,10 @@
 
       if (!startTime) { row.style.display = 'none'; return; }
 
-      // HA returns local-time strings "2026-06-12 08:00:00" — parse as local
+      // Normalise both "2026-06-12 08:00:00" and ISO 8601 "2026-06-12T08:00:00+02:00"
       const parseLocal = s => {
-        const [date, time] = s.split(' ');
+        const norm = s.replace('T', ' ').split('+')[0].split('.')[0];
+        const [date, time] = norm.split(' ');
         const [y, mo, d]   = date.split('-').map(Number);
         const [h, mi]      = time.split(':').map(Number);
         return new Date(y, mo - 1, d, h, mi);

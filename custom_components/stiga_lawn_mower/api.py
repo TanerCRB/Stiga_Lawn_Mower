@@ -322,7 +322,8 @@ def _parse_last_position(attrs: dict) -> dict:
     coords = (attrs.get("last_position") or {}).get("coordinates")
     if isinstance(coords, (list, tuple)) and len(coords) >= 2:
         try:
-            return {"last_position_lat": float(coords[0]), "last_position_lon": float(coords[1])}
+            # GeoJSON convention (RFC 7946): coordinates are [longitude, latitude]
+            return {"last_position_lat": float(coords[1]), "last_position_lon": float(coords[0])}
         except (TypeError, ValueError):
             pass
     return {}
@@ -1211,9 +1212,11 @@ class StigaMQTTClient:
     def _parse_schedule(self, payload: bytes) -> None:
         try:
             fields = decode_protobuf(payload)
-            enabled = bool(fields.get(1, 0))
+            raw_enabled = fields.get(1, 0)
+            enabled = bool(raw_enabled) if isinstance(raw_enabled, int) else False
             bitmap = fields.get(2)
-            schedule_type = int(fields.get(4, 5))
+            raw_type = fields.get(4, 5)
+            schedule_type = int(raw_type) if isinstance(raw_type, int) else 5
             blocks = _decode_schedule_bitmap(bitmap) if isinstance(bitmap, bytes) else []
             self._schedule = StigaRobotSchedule(enabled=enabled, blocks=blocks, schedule_type=schedule_type)
             _LOGGER.debug("Parsed schedule: enabled=%s blocks=%d", enabled, len(blocks))

@@ -77,14 +77,15 @@ class StigaDeviceTracker(CoordinatorEntity[StigaCoordinator], TrackerEntity):
     @property
     def location_accuracy(self) -> int:
         """Return accuracy in metres — 1-3 m with RTK, 10 m with standard GPS."""
-        status = self.coordinator.data
-        if status and status.rtk_quality is not None:
-            if status.rtk_quality >= 80:
-                return 1
-            if status.rtk_quality >= 50:
-                return 3
         pos = self.coordinator.position
         if pos is not None and self.coordinator.reference_lat is not None:
+            # Using RTK offset — apply quality tier if available
+            status = self.coordinator.data
+            if status and status.rtk_quality is not None:
+                if status.rtk_quality >= 80:
+                    return 1
+                if status.rtk_quality >= 50:
+                    return 3
             return 3   # RTK offset without quality field — assume good accuracy
         return 10      # standard GPS fallback
 

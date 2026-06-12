@@ -194,4 +194,14 @@ class StigaCoordinator(DataUpdateCoordinator[StigaDeviceStatus]):
                 await self._mqtt.request_position()
             except Exception as exc:
                 _LOGGER.debug("MQTT poll request failed: %s", exc)
+        # Retry perimeter fetch if it failed at startup (garden sensors stay None otherwise)
+        if self._garden_info is None:
+            try:
+                self._garden_info, self._perimeter_raw = await self._rest.get_perimeters(
+                    self.device,
+                    fallback_lat=self._base_latitude,
+                    fallback_lon=self._base_longitude,
+                )
+            except Exception as exc:
+                _LOGGER.debug("Perimeter retry failed: %s", exc)
         return self._mqtt.status
