@@ -210,7 +210,7 @@ The included Lovelace card shows the robot on a satellite map together with mowi
 
 | Attribute | Description |
 |---|---|
-| `position_source` | `rtk_offset` (centimetre accuracy) or `gps_status` (standard GPS ~5–10 m) |
+| `position_source` | `rtk_offset` (reported accuracy 1–3 m) or `gps_status` (reported accuracy 10 m) |
 | `offset_lat_m` | Metres north/south from the RTK reference origin (only when `rtk_offset`) |
 | `offset_lon_m` | Metres east/west from the RTK reference origin (only when `rtk_offset`) |
 | `heading` | Compass bearing the robot is facing (0–360°) |
@@ -302,6 +302,8 @@ Four read-only sensors that reflect the garden map stored in the Stiga cloud. Th
 | `sensor.<robot>_obstacle_area` | Total area covered by obstacles in m² |
 
 These values change only when you remap your garden in the STIGA.GO app. To refresh them, reload the integration via **Settings → Devices & Services → Stiga Lawn Mower → Reload**.
+
+> If the cloud fetch fails at startup (e.g. a transient network error), the integration retries automatically on the next poll cycle — no manual reload needed.
 
 ---
 
@@ -441,7 +443,10 @@ lawn_mower: lawn_mower.garden_robot
 | **RTK antenna marker** | Blue house icon at the RTK antenna's exact GPS position (auto-detected) |
 | **Charging dock marker** | Orange pin at the physical charging station — shown when `dock_lat`/`dock_lon` are set in config |
 | **Zone polygons** | Green filled polygons for each mowing zone, with zone name tooltip |
+| **Zone progress gradient** | Active zone fills bottom-to-top with a sharp gradient showing % of zone already mowed |
 | **Obstacle polygons** | Red dashed polygons for mapped obstacles |
+| **Mowing trail** | Dark-green polyline tracing the robot's path during the current session; cleared when the robot becomes idle; up to 1000 points |
+| **Next schedule window** | Row below the stats grid: shows "Next mowing: Wednesday 08:00 – 10:30" or "Schedule ends: Today 10:30" based on the calendar entity; hidden during spot cuts |
 | **Stats grid** | Zone, Zone %, Satellites, Schedule remaining, Garden area (m²), RSSI |
 | **Action buttons** | Start / Stop / Dock — call `lawn_mower` services directly |
 
