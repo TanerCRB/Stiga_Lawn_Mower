@@ -23,6 +23,8 @@ from .const import (
     FIREBASE_API_KEY,
     FIREBASE_AUTH_URL,
     LOCATION_COVERAGE,
+    LOCATION_LAT,
+    LOCATION_LON,
     LOCATION_RTK_QUALITY,
     LOCATION_SATELLITES,
     MQTT_BROKER_FALLBACK,
@@ -175,6 +177,8 @@ class StigaDeviceStatus:
     # GPS / Location
     gps_satellites: Optional[int] = None
     gps_coverage: Optional[int] = None
+    gps_lat: Optional[float] = None   # absolute GPS latitude from STATUS field 19
+    gps_lon: Optional[float] = None   # absolute GPS longitude from STATUS field 19
     rtk_quality: Optional[int] = None
     # Cellular network
     rssi: Optional[int] = None
@@ -1040,6 +1044,10 @@ class StigaMQTTClient:
                         self._status.gps_coverage = loc[LOCATION_COVERAGE]
                     if LOCATION_SATELLITES in loc and isinstance(loc[LOCATION_SATELLITES], int):
                         self._status.gps_satellites = loc[LOCATION_SATELLITES]
+                    if LOCATION_LAT in loc and isinstance(loc[LOCATION_LAT], int):
+                        self._status.gps_lat = _fixed64_to_double(loc[LOCATION_LAT])
+                    if LOCATION_LON in loc and isinstance(loc[LOCATION_LON], int):
+                        self._status.gps_lon = _fixed64_to_double(loc[LOCATION_LON])
                     if LOCATION_RTK_QUALITY in loc and isinstance(loc[LOCATION_RTK_QUALITY], int):
                         self._status.rtk_quality = loc[LOCATION_RTK_QUALITY]
 

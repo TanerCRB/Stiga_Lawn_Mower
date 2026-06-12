@@ -74,7 +74,8 @@
       "garden_area": { "name": "Garden Area" },
       "garden_zones": { "name": "Garden Zones" },
       "obstacles_count": { "name": "Obstacles" },
-      "obstacles_area": { "name": "Obstacle Area" }
+      "obstacles_area": { "name": "Obstacle Area" },
+      "schedule_remaining": { "name": "Schedule Remaining" }
     },
     "binary_sensor": {
       "cloud_connection": { "name": "Cloud Connection" },

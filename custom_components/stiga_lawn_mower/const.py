@@ -85,6 +85,8 @@ INFO_CODE_SLOPE_SENSOR = 0x01B2   # 434
 # Location sub-message field indices (STATUS field 19)
 LOCATION_COVERAGE    = 1
 LOCATION_SATELLITES  = 2
+LOCATION_LAT         = 3   # FIXED64 IEEE 754 double — absolute GPS latitude (degrees)
+LOCATION_LON         = 4   # FIXED64 IEEE 754 double — absolute GPS longitude (degrees)
 LOCATION_RTK_QUALITY = 5
 
 # Network sub-message field indices (STATUS field 20 → inner field 3)

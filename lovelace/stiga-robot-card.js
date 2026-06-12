@@ -353,8 +353,8 @@
         <div class="stat-label">Satellites</div>
       </div>
       <div class="stat-cell">
-        <div class="stat-value js-rtk">—</div>
-        <div class="stat-label">RTK %</div>
+        <div class="stat-value js-sched">—</div>
+        <div class="stat-label">Sched. Left</div>
       </div>
       <div class="stat-cell">
         <div class="stat-value js-area">—</div>
@@ -650,7 +650,12 @@
       set('.js-zone',     this._state('sensor.zone'));
       set('.js-zone-pct', this._state('sensor.zone_completed'), v => `${parseFloat(v).toFixed(0)}%`);
       set('.js-sats',     this._state('sensor.gps_satellites'));
-      set('.js-rtk',      this._state('sensor.rtk_quality'));
+      set('.js-sched',    this._state('sensor.schedule_remaining'), v => {
+        const m = Math.round(parseFloat(v));
+        const h = Math.floor(m / 60);
+        const r = m % 60;
+        return h > 0 ? `${h}h ${r}m` : `${m}m`;
+      });
       set('.js-area',     this._state('sensor.garden_area'),    v => `${parseFloat(v).toFixed(0)}`);
       set('.js-rssi',     this._state('sensor.rssi'));
 

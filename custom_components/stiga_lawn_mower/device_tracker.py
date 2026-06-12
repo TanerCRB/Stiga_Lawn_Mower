@@ -49,50 +49,61 @@ class StigaDeviceTracker(CoordinatorEntity[StigaCoordinator], TrackerEntity):
 
     @property
     def latitude(self) -> float | None:
+        # Primary: RTK offset position (cm-level when base station is active)
         ref_lat = self.coordinator.reference_lat
         ref_lon = self.coordinator.reference_lon
-        if ref_lat is None or ref_lon is None:
-            return None
         pos = self.coordinator.position
-        if pos is None:
-            return None
-        return ref_lat + pos.offset_lat_m / _LAT_M_PER_DEG
+        if ref_lat is not None and ref_lon is not None and pos is not None:
+            return ref_lat + pos.offset_lat_m / _LAT_M_PER_DEG
+        # Fallback: standard GPS from STATUS location message (~5-10 m accuracy)
+        status = self.coordinator.data
+        if status and status.gps_lat is not None:
+            return status.gps_lat
+        return None
 
     @property
     def longitude(self) -> float | None:
         ref_lat = self.coordinator.reference_lat
         ref_lon = self.coordinator.reference_lon
-        if ref_lat is None or ref_lon is None:
-            return None
         pos = self.coordinator.position
-        if pos is None:
-            return None
-        lon_m_per_deg = _LAT_M_PER_DEG * math.cos(math.radians(ref_lat))
-        return ref_lon + pos.offset_lon_m / lon_m_per_deg
+        if ref_lat is not None and ref_lon is not None and pos is not None:
+            lon_m_per_deg = _LAT_M_PER_DEG * math.cos(math.radians(ref_lat))
+            return ref_lon + pos.offset_lon_m / lon_m_per_deg
+        status = self.coordinator.data
+        if status and status.gps_lon is not None:
+            return status.gps_lon
+        return None
 
     @property
     def location_accuracy(self) -> int:
-        """Return accuracy in metres, estimated from RTK quality."""
+        """Return accuracy in metres — 1-3 m with RTK, 10 m with standard GPS."""
         status = self.coordinator.data
         if status and status.rtk_quality is not None:
             if status.rtk_quality >= 80:
                 return 1
             if status.rtk_quality >= 50:
                 return 3
-        return 10
+        pos = self.coordinator.position
+        if pos is not None and self.coordinator.reference_lat is not None:
+            return 3   # RTK offset without quality field — assume good accuracy
+        return 10      # standard GPS fallback
 
     @property
     def extra_state_attributes(self) -> dict:
         pos = self.coordinator.position
+        status = self.coordinator.data
         attrs: dict = {}
-        if pos is not None:
+        if pos is not None and self.coordinator.reference_lat is not None:
+            attrs["position_source"] = "rtk_offset"
             attrs["offset_lat_m"] = round(pos.offset_lat_m, 3)
             attrs["offset_lon_m"] = round(pos.offset_lon_m, 3)
             attrs["heading"] = round(pos.heading, 1)
             attrs["distance_m"] = round(
                 math.hypot(pos.offset_lat_m, pos.offset_lon_m), 2
             )
-        if self.coordinator.reference_lat is None:
+        elif status and status.gps_lat is not None:
+            attrs["position_source"] = "gps_status"
+        if self.coordinator.reference_lat is None and (status is None or status.gps_lat is None):
             attrs["note"] = "Configure base station coordinates to show GPS position on map"
 
         info = self.coordinator.garden_info

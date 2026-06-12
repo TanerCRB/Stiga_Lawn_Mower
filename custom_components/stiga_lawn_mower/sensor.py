@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from homeassistant.util import dt as dt_util
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -152,6 +154,14 @@ SENSOR_DESCRIPTIONS: tuple[StigaSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTime.HOURS,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
+    StigaSensorDescription(
+        key="schedule_remaining",
+        name="Schedule Remaining",
+        icon="mdi:clock-end",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+    ),
     # --- Garden layout sensors (from REST /api/perimeters) ---
     StigaSensorDescription(
         key="garden_area",
@@ -256,6 +266,22 @@ class StigaSensor(CoordinatorEntity[StigaCoordinator], SensorEntity):
             return data.signal_quality
         if key == "firmware_version":
             return self.coordinator.device.firmware_version or None
+        if key == "schedule_remaining":
+            schedule = self.coordinator.schedule
+            if not schedule.enabled or not schedule.blocks:
+                return None
+            active_ops = {1, 28, 29, 30, 32}
+            if data.operation not in active_ops:
+                return None
+            now = dt_util.now()
+            day = now.weekday()
+            current_slot = now.hour * 2 + (1 if now.minute >= 30 else 0)
+            for block in schedule.blocks:
+                if block.day_index == day and block.start_slot <= current_slot <= block.end_slot:
+                    end_min = (block.end_slot + 1) * 30
+                    cur_min = now.hour * 60 + now.minute
+                    return max(0, end_min - cur_min)
+            return None  # brak aktywnego bloku → spot cut
         if key == "total_work_time":
             return self.coordinator.device.total_work_time
         info = self.coordinator.garden_info

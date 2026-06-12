@@ -65,28 +65,29 @@ All Stiga robots controllable via the **STIGA.GO app**:
 
 ### Sensor Entities
 
-| Sensor | Unit | Category |
-|---|---|---|
-| Battery | % | — |
-| Status | — | — |
-| Garden Completion | % | — |
-| Current Zone | — | — |
-| Zone Progress | % | — |
-| Battery Capacity | mAh | diagnostic |
-| Cutting Height | mm | diagnostic |
-| GPS Satellites | — | diagnostic |
-| GPS Coverage | — | diagnostic |
-| RTK Quality | — | diagnostic |
-| RSSI | dBm | diagnostic |
-| RSRP | dBm | diagnostic |
-| RSRQ | dB | diagnostic |
-| Signal Quality | % | diagnostic |
-| Firmware Version | — | diagnostic |
-| Total Work Time | s | diagnostic |
-| Garden Area | m² | — |
-| Garden Zones | — | — |
-| Obstacles | — | — |
-| Obstacle Area | m² | — |
+| Sensor | Unit | Category | Notes |
+|---|---|---|---|
+| Battery | % | — | — |
+| Status | — | — | — |
+| Garden Completed | % | — | Garden completion while mowing |
+| Zone | — | — | Current mowing zone number |
+| Zone Completed | % | — | Completion within the current zone |
+| Schedule Remaining | min | — | Minutes left in the active schedule window; `—` during spot cut |
+| Battery Capacity | mAh | diagnostic | — |
+| Cutting Height | mm | diagnostic | — |
+| GPS Satellites | — | diagnostic | Number of visible satellites |
+| GPS Coverage | — | diagnostic | — |
+| RTK Quality | — | diagnostic | Only reported during RTK initialisation; `—` during normal mowing |
+| RSSI | dBm | diagnostic | — |
+| RSRP | dBm | diagnostic | — |
+| RSRQ | dB | diagnostic | — |
+| Signal Quality | % | diagnostic | — |
+| Firmware Version | — | diagnostic | — |
+| Total Work Time | h | diagnostic | Cumulative mowing hours |
+| Garden Area | m² | — | — |
+| Garden Zones | — | — | — |
+| Obstacles | — | — | — |
+| Obstacle Area | m² | — | — |
 
 ### Binary Sensor Entities
 
@@ -144,7 +145,12 @@ All Stiga robots controllable via the **STIGA.GO app**:
 
 The integration exposes a `device_tracker` entity that shows the robot's real-time position on the HA map, updated live as the robot mows.
 
-**How it works:** The robot broadcasts its GPS position as a metre-offset from the RTK coordinate origin via MQTT. The integration converts this offset to absolute GPS coordinates using the RTK reference, which is automatically extracted from the garden map data (ECEF coordinates embedded in the perimeter protobuf blob, field 5). No manual coordinate entry is required in most cases.
+**How it works:** The integration resolves the robot's absolute GPS position using two sources, applied in priority order:
+
+1. **RTK offset (primary)** — when an RTK reference is available, the robot's metre-offset from the base station (received via MQTT) is combined with the reference coordinates to compute a centimetre-accurate position.
+2. **GPS from status (fallback)** — the MQTT STATUS message also contains an absolute GPS fix (standard GPS, ~5–10 m accuracy). Used automatically when no RTK reference is configured or available — the device tracker works out of the box even without a base station.
+
+The `position_source` attribute shows which source is active: `rtk_offset` or `gps_status`.
 
 #### RTK reference — automatic detection
 
@@ -204,10 +210,11 @@ The included Lovelace card shows the robot on a satellite map together with mowi
 
 | Attribute | Description |
 |---|---|
-| `offset_lat_m` | Metres north/south from the RTK reference origin |
-| `offset_lon_m` | Metres east/west from the RTK reference origin |
+| `position_source` | `rtk_offset` (centimetre accuracy) or `gps_status` (standard GPS ~5–10 m) |
+| `offset_lat_m` | Metres north/south from the RTK reference origin (only when `rtk_offset`) |
+| `offset_lon_m` | Metres east/west from the RTK reference origin (only when `rtk_offset`) |
 | `heading` | Compass bearing the robot is facing (0–360°) |
-| `distance_m` | Straight-line distance from the RTK reference origin |
+| `distance_m` | Straight-line distance from the RTK reference origin (only when `rtk_offset`) |
 | `base_station_lat` | Latitude of the RTK antenna (auto-detected) |
 | `base_station_lon` | Longitude of the RTK antenna (auto-detected) |
 | `zone_polygons` | List of mowing zone polygons `[{id, name, polygon: [[lat,lon],...]}]` |
@@ -402,11 +409,11 @@ The card auto-discovers all entity IDs using the prefix:
 |---|---|
 | Status | `sensor.<prefix>_status` |
 | Battery | `sensor.<prefix>_battery` |
-| Garden Completion | `sensor.<prefix>_garden_completed` |
-| Current Zone | `sensor.<prefix>_zone` |
-| Zone Progress | `sensor.<prefix>_zone_completed` |
+| Garden Completed | `sensor.<prefix>_garden_completed` |
+| Zone | `sensor.<prefix>_zone` |
+| Zone Completed | `sensor.<prefix>_zone_completed` |
+| Schedule Remaining | `sensor.<prefix>_schedule_remaining` |
 | GPS Satellites | `sensor.<prefix>_gps_satellites` |
-| RTK Quality | `sensor.<prefix>_rtk_quality` |
 | RSSI | `sensor.<prefix>_rssi` |
 | Garden Area | `sensor.<prefix>_garden_area` |
 | Cloud Connection | `binary_sensor.<prefix>_cloud_connection` |
@@ -435,7 +442,7 @@ lawn_mower: lawn_mower.garden_robot
 | **Charging dock marker** | Orange pin at the physical charging station — shown when `dock_lat`/`dock_lon` are set in config |
 | **Zone polygons** | Green filled polygons for each mowing zone, with zone name tooltip |
 | **Obstacle polygons** | Red dashed polygons for mapped obstacles |
-| **Stats grid** | Zone, Zone %, Satellites, RTK quality, Garden area (m²), RSSI |
+| **Stats grid** | Zone, Zone %, Satellites, Schedule remaining, Garden area (m²), RSSI |
 | **Action buttons** | Start / Stop / Dock — call `lawn_mower` services directly |
 
 ### Map notes
