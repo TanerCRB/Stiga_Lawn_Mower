@@ -311,7 +311,7 @@ These values change only when you remap your garden in the STIGA.GO app. To refr
 
 A custom Lovelace card is included in the `lovelace/` folder. It shows live status, battery, garden progress, a map with the robot's real-time position and heading, sensor stats, and Start / Stop / Dock buttons — all in one card.
 
-![Card layout: status badge, battery bar, map, stats grid, action buttons](https://raw.githubusercontent.com/TanerCRB/Stiga_Lawn_Mower/main/lovelace/preview.png)
+![Stiga Robot Card — live mowing view with zone gradient, satellite map and stats grid](img/card-preview.png)
 
 ### Installation
 
@@ -432,6 +432,10 @@ lawn_mower: lawn_mower.garden_robot
 ```
 
 ### Features
+
+> Screenshot below: card during an active mowing session — zone 3 (25%) shows a bottom-to-top gradient fill, satellite map with zone polygon, stats grid, and next schedule info.
+
+![Card features — zone gradient, satellite map, stats and schedule row](img/card-preview.png)
 
 | Feature | Notes |
 |---|---|
