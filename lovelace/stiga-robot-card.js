@@ -14,6 +14,11 @@
  *   lawn_mower:        lawn_mower.bob
  *   tracker:           device_tracker.bob_location
  *   status:            sensor.bob_status
+ *
+ * Optional charging station marker (separate from RTK antenna marker):
+ *   dock_lat:          54.131500   # GPS latitude of the charging dock
+ *   dock_lon:          16.281700   # GPS longitude of the charging dock
+ *   dock_label:        Charging Dock   # tooltip label (default: "Charging Dock")
  */
 
 (function () {
@@ -77,7 +82,7 @@
     });
   }
 
-  /* ── Leaflet marker: base/docking station ────────────────────────────── */
+  /* ── Leaflet marker: RTK antenna / base station (blue house) ────────── */
   function dockIcon() {
     return L.divIcon({
       className: '',
@@ -92,6 +97,25 @@
       </svg>`,
       iconSize:   [28, 32],
       iconAnchor: [14, 32],
+    });
+  }
+
+  /* ── Leaflet marker: charging dock (orange pin with bolt) ────────────── */
+  function chargingIcon() {
+    return L.divIcon({
+      className: '',
+      html: `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+        <filter id="cs" x="-25%" y="-15%" width="150%" height="130%">
+          <feDropShadow dx="0" dy="1.5" stdDeviation="1.2" flood-opacity=".4"/>
+        </filter>
+        <g filter="url(#cs)">
+          <path d="M14 2C9.03 2 5 6.03 5 11c0 6.56 9 22 9 22s9-15.44 9-22c0-4.97-4.03-9-9-9z"
+                fill="#f57c00" stroke="white" stroke-width="1.4" stroke-linejoin="round"/>
+          <path d="M16 6l-5 7h4l-1.5 6 5.5-8h-4z" fill="white"/>
+        </g>
+      </svg>`,
+      iconSize:   [28, 36],
+      iconAnchor: [14, 36],
     });
   }
 
@@ -357,15 +381,14 @@
       this.attachShadow({ mode: 'open' });
       this._hass          = null;
       this._config        = null;
-      this._map           = null;
-      this._marker        = null;
-      this._firstView     = true;
-      this._baseMarker    = null;
-      this._zoneLayers    = [];
-      this._obstacleLayers = [];
-      this._perimeterKey  = null;
-      this._dockLat       = null;
-      this._dockLon       = null;
+      this._map             = null;
+      this._marker          = null;
+      this._firstView       = true;
+      this._baseMarker      = null;
+      this._chargingMarker  = null;
+      this._zoneLayers      = [];
+      this._obstacleLayers  = [];
+      this._perimeterKey    = null;
     }
 
     /* Called once by HA when the card config is parsed */
@@ -475,7 +498,7 @@
       if (this._hass) this._update();  // apply buffered state
     }
 
-    /* ── Base station marker ── */
+    /* ── RTK antenna marker (blue house) ── */
     _updateBaseMarker(lat, lon) {
       if (!this._map || lat == null || lon == null || isNaN(lat) || isNaN(lon)) return;
       if (this._baseMarker) {
@@ -483,7 +506,24 @@
       } else {
         this._baseMarker = L.marker([lat, lon], { icon: dockIcon(), zIndexOffset: -200 })
           .addTo(this._map)
-          .bindTooltip('Base Station', { permanent: false, direction: 'top', offset: [0, -28] });
+          .bindTooltip('RTK Antenna', { permanent: false, direction: 'top', offset: [0, -28] });
+      }
+    }
+
+    /* ── Charging dock marker (orange pin) — optional, from card config ── */
+    _updateChargingMarker(lat, lon, label) {
+      if (!this._map) return;
+      if (lat == null || lon == null || isNaN(+lat) || isNaN(+lon)) {
+        if (this._chargingMarker) { this._chargingMarker.remove(); this._chargingMarker = null; }
+        return;
+      }
+      const tip = label || 'Charging Dock';
+      if (this._chargingMarker) {
+        this._chargingMarker.setLatLng([+lat, +lon]);
+      } else {
+        this._chargingMarker = L.marker([+lat, +lon], { icon: chargingIcon(), zIndexOffset: -100 })
+          .addTo(this._map)
+          .bindTooltip(tip, { permanent: false, direction: 'top', offset: [0, -32] });
       }
     }
 
@@ -626,17 +666,13 @@
       const zones    = tracker?.attributes?.zone_polygons     || [];
       const obstacles = tracker?.attributes?.obstacle_polygons || [];
 
-      // When docked/charging the robot IS at the dock — remember that position.
-      // Falls back to HA-configured base coords if robot was never seen docked.
-      if ((statusVal === 'charging' || statusVal === 'docked') && lat != null && lon != null) {
-        this._dockLat = lat;
-        this._dockLon = lon;
-      }
-      const dockLat = this._dockLat ?? baseLat;
-      const dockLon = this._dockLon ?? baseLon;
-
       this._updatePerimeters(zones, obstacles);
-      this._updateBaseMarker(dockLat, dockLon);
+      this._updateBaseMarker(baseLat, baseLon);
+      this._updateChargingMarker(
+        this._config.dock_lat,
+        this._config.dock_lon,
+        this._config.dock_label,
+      );
       this._updateMap(lat, lon, heading, cfg.color);
     }
 
