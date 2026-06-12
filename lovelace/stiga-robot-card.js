@@ -675,6 +675,7 @@
         `<stop offset="${p}%" stop-color="#34a853" stop-opacity="0.08"/>` +
         `<stop offset="100%"  stop-color="#34a853" stop-opacity="0.08"/>`;
       path.setAttribute('fill', `url(#${id})`);
+      path.removeAttribute('fill-opacity');  // Leaflet sets this as SVG attr; gradient stop-opacity takes over
       path.style.fillOpacity = '';
     }
 
