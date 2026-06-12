@@ -229,6 +229,15 @@ class StigaZoneInfo:
     id: int
     name: str
     cutting_mode: int  # 0=denseGrid, 1=chessBoard, 5=northSouth, 6=eastWest
+    polygon: list = field(default_factory=list)  # [[lat, lon], ...]
+
+
+@dataclass
+class StigaObstacleInfo:
+    """Obstacle/exclusion zone from REST GET /api/perimeters."""
+    id: int
+    name: str
+    polygon: list = field(default_factory=list)  # [[lat, lon], ...]
 
 
 @dataclass
@@ -239,12 +248,115 @@ class StigaGardenInfo:
     zones_area_m2: float | None = None
     obstacles_count: int | None = None
     obstacles_area_m2: float | None = None
-    zones: list = field(default_factory=list)  # list[StigaZoneInfo]
+    zones: list = field(default_factory=list)         # list[StigaZoneInfo]
+    obstacles_geo: list = field(default_factory=list) # list[StigaObstacleInfo]
+    reference_lat: float | None = None
+    reference_lon: float | None = None
 
 
 def _fixed64_to_double(val: int) -> float:
     """Reinterpret a uint64 (from protobuf fixed64) as an IEEE 754 little-endian double."""
     return struct.unpack("<d", val.to_bytes(8, "little"))[0]
+
+
+def _zigzag(n: int) -> int:
+    return (n >> 1) ^ -(n & 1)
+
+
+def _decode_perimeter_geometry(
+    attrs: dict,
+    ref_lat: float,
+    ref_lon: float,
+) -> tuple[list, list]:
+    """Decode zone and obstacle polygons from raw perimeter attributes.
+
+    Protobuf layout (reverse-engineered, see StigaAPIPerimeters.js):
+      outer field 1 = zones, field 3 = obstacles (repeated length-delimited)
+      each entry: field 1 = id, field 2 = points[], field 15 = name
+      anchor: field 16 (zones) / field 6 (obstacles) → { 1: eastM fixed64, 2: northM fixed64 }
+      point:  { 1: x, 2: y } zigzag-encoded signed centimetres offset from anchor
+
+    Returns (zone_list, obstacle_list) each as [{"id", "name", "polygon": [[lat, lon], ...]}, ...].
+    """
+    dp_data = (attrs.get("data_points") or {}).get("data")
+    if not dp_data:
+        return [], []
+    LAT_M_PER_DEG = 111320.0
+    lon_m_per_deg = LAT_M_PER_DEG * math.cos(math.radians(ref_lat))
+
+    try:
+        outer = decode_protobuf_repeated(bytes(dp_data))
+    except Exception:
+        return [], []
+
+    def _parse_entry(entry_bytes: bytes, anchor_field: int) -> dict | None:
+        try:
+            ef = decode_protobuf_repeated(entry_bytes)
+        except Exception:
+            return None
+        ids = ef.get(1, [])
+        if not ids or not isinstance(ids[0], int):
+            return None
+        zone_id = ids[0]
+
+        names = ef.get(15, [])
+        name_raw = names[0] if names else None
+        if isinstance(name_raw, bytes):
+            try:
+                name = name_raw.decode("utf-8").strip("\x00") or f"Area {zone_id}"
+            except UnicodeDecodeError:
+                name = f"Area {zone_id}"
+        else:
+            name = f"Area {zone_id}"
+
+        ancs = ef.get(anchor_field, [])
+        if not ancs or not isinstance(ancs[0], bytes):
+            return None
+        try:
+            af = decode_protobuf_repeated(ancs[0])
+        except Exception:
+            return None
+        e_vals = af.get(1, [])
+        n_vals = af.get(2, [])
+        if not e_vals or not n_vals:
+            return None
+        anchor_e = _fixed64_to_double(e_vals[0])
+        anchor_n = _fixed64_to_double(n_vals[0])
+
+        polygon = []
+        for pt_raw in ef.get(2, []):
+            if isinstance(pt_raw, bytes) and pt_raw:
+                try:
+                    pf = decode_protobuf_repeated(pt_raw)
+                    x = _zigzag(pf.get(1, [0])[0])
+                    y = _zigzag(pf.get(2, [0])[0])
+                except Exception:
+                    x = y = 0
+            else:
+                x = y = 0
+            east_m = anchor_e + x / 100
+            north_m = anchor_n + y / 100
+            polygon.append([
+                round(ref_lat + north_m / LAT_M_PER_DEG, 7),
+                round(ref_lon + east_m / lon_m_per_deg, 7),
+            ])
+        return {"id": zone_id, "name": name, "polygon": polygon}
+
+    zone_list = []
+    for entry_bytes in outer.get(1, []):
+        if isinstance(entry_bytes, bytes):
+            entry = _parse_entry(entry_bytes, anchor_field=16)
+            if entry and len(entry["polygon"]) >= 3:
+                zone_list.append(entry)
+
+    obs_list = []
+    for entry_bytes in outer.get(3, []):
+        if isinstance(entry_bytes, bytes):
+            entry = _parse_entry(entry_bytes, anchor_field=6)
+            if entry and len(entry["polygon"]) >= 3:
+                obs_list.append(entry)
+
+    return zone_list, obs_list
 
 
 def _decode_schedule_bitmap(bitmap: bytes) -> list[StigaScheduleBlock]:
@@ -378,6 +490,17 @@ class StigaRestClient:
             zones_summary = preview.get("zones") or {}
             obstacles_summary = preview.get("obstacles") or {}
 
+            ref_pos = preview.get("referencePosition") or {}
+            ref_lat: float | None = ref_pos.get("lat")
+            ref_lon: float | None = ref_pos.get("lng")
+
+            # Decode polygon geometry (requires referencePosition)
+            zone_geo_list: list[dict] = []
+            obs_geo_list: list[dict] = []
+            if ref_lat is not None and ref_lon is not None:
+                zone_geo_list, obs_geo_list = _decode_perimeter_geometry(attrs, ref_lat, ref_lon)
+            zone_polygon_map = {z["id"]: z["polygon"] for z in zone_geo_list}
+
             zones: list[StigaZoneInfo] = []
             dp_data = (attrs.get("data_points") or {}).get("data")
             if isinstance(dp_data, list) and dp_data:
@@ -403,10 +526,16 @@ class StigaRestClient:
                             id=zone_id,
                             name=name,
                             cutting_mode=int(cutting_mode) if isinstance(cutting_mode, int) else 0,
+                            polygon=zone_polygon_map.get(zone_id, []),
                         ))
                     zones.sort(key=lambda z: z.id)
                 except Exception as exc:
                     _LOGGER.debug("Failed to parse zone settings from data_points: %s", exc)
+
+            obstacles_geo = [
+                StigaObstacleInfo(id=o["id"], name=o["name"], polygon=o["polygon"])
+                for o in obs_geo_list
+            ]
 
             garden_info = StigaGardenInfo(
                 total_area_m2=preview.get("m2Area"),
@@ -415,13 +544,17 @@ class StigaRestClient:
                 obstacles_count=obstacles_summary.get("num"),
                 obstacles_area_m2=obstacles_summary.get("m2Area"),
                 zones=zones,
+                obstacles_geo=obstacles_geo,
+                reference_lat=ref_lat,
+                reference_lon=ref_lon,
             )
             _LOGGER.debug(
-                "Perimeters: area=%s m², zones=%s (%s with settings), obstacles=%s",
+                "Perimeters: area=%s m², zones=%s (%s with polygons), obstacles=%s (%s with polygons)",
                 garden_info.total_area_m2,
                 garden_info.zones_count,
-                len(zones),
+                len([z for z in zones if z.polygon]),
                 garden_info.obstacles_count,
+                len(obstacles_geo),
             )
             return garden_info, attrs
         except (KeyError, TypeError) as exc:

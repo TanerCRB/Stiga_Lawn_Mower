@@ -17,9 +17,12 @@
  */
 
 (function () {
-  /* ── Leaflet CDN ─────────────────────────────────────────────────────── */
-  const LEAFLET_JS  = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-  const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  /* ── Leaflet CDN + Google satellite tiles ────────────────────────────── */
+  const LEAFLET_JS   = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  const LEAFLET_CSS  = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  // Google satellite + labels tiles (no API key required for personal use)
+  const TILE_URL     = 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}';
+  const TILE_OPTIONS = { subdomains: '0123', maxZoom: 22, maxNativeZoom: 20 };
 
   function loadLeaflet() {
     return new Promise((resolve) => {
@@ -71,6 +74,24 @@
       </svg>`,
       iconSize:   [36, 36],
       iconAnchor: [18, 18],
+    });
+  }
+
+  /* ── Leaflet marker: base/docking station ────────────────────────────── */
+  function dockIcon() {
+    return L.divIcon({
+      className: '',
+      html: `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="32" viewBox="0 0 24 28">
+        <filter id="ds" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="1" stdDeviation="1" flood-opacity=".4"/>
+        </filter>
+        <g filter="url(#ds)">
+          <path d="M12 2L2 10h3v10h5v-6h4v6h5V10h3z" fill="#1a73e8" stroke="white" stroke-width="1.2" stroke-linejoin="round"/>
+          <rect x="9" y="16" width="6" height="4" rx="1" fill="white" opacity=".6"/>
+        </g>
+      </svg>`,
+      iconSize:   [28, 32],
+      iconAnchor: [14, 32],
     });
   }
 
@@ -170,10 +191,11 @@
     #map-wrap {
       height: 280px;
       position: relative;
+      overflow: hidden;
       border-top: 1px solid var(--divider-color, #e0e0e0);
       border-bottom: 1px solid var(--divider-color, #e0e0e0);
     }
-    #the-map { height: 100%; width: 100%; }
+    #the-map { position: absolute; inset: 0; }
     .map-msg {
       position: absolute;
       inset: 0;
@@ -333,11 +355,15 @@
     constructor() {
       super();
       this.attachShadow({ mode: 'open' });
-      this._hass      = null;
-      this._config    = null;
-      this._map       = null;
-      this._marker    = null;
-      this._firstView = true;
+      this._hass          = null;
+      this._config        = null;
+      this._map           = null;
+      this._marker        = null;
+      this._firstView     = true;
+      this._baseMarker    = null;
+      this._zoneLayers    = [];
+      this._obstacleLayers = [];
+      this._perimeterKey  = null;
     }
 
     /* Called once by HA when the card config is parsed */
@@ -345,8 +371,32 @@
       if (!config.entity_prefix) throw new Error('stiga-robot-card: entity_prefix is required');
       this._config = config;
       this.shadowRoot.innerHTML = TEMPLATE;
+      this._applyLayout();
       this._bindButtons();
-      loadLeaflet().then(() => this._initMap());
+      if (config.show_map !== false) {
+        loadLeaflet().then(() => this._initMap());
+      }
+    }
+
+    /* Apply layout config options (visibility, map height) */
+    _applyLayout() {
+      const c = this._config;
+
+      // Map height (default 280px)
+      if (c.map_height != null) {
+        const wrap = this._$('#map-wrap');
+        if (wrap) wrap.style.height = `${parseInt(c.map_height, 10)}px`;
+      }
+
+      // Section visibility
+      const vis = (sel, flag) => {
+        const el = this._$(sel);
+        if (el) el.style.display = flag === false ? 'none' : '';
+      };
+      vis('#map-wrap',         c.show_map      !== false);
+      vis('.progress-section', c.show_progress !== false);
+      vis('.stats-grid',       c.show_stats    !== false);
+      vis('.actions',          c.show_buttons  !== false);
     }
 
     /* Called by HA on every state change */
@@ -388,6 +438,17 @@
       const mapEl = this._$('#the-map');
       if (!mapEl || this._map) return;
 
+      // Leaflet CSS must be inside the shadow root — document.head styles
+      // do not cross the Shadow DOM boundary, so tiles and controls render
+      // unstyled (blank) without this injection.
+      if (!this.shadowRoot.querySelector('link[data-leaflet-css]')) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = LEAFLET_CSS;
+        link.setAttribute('data-leaflet-css', '');
+        this.shadowRoot.insertBefore(link, this.shadowRoot.firstChild);
+      }
+
       const map = L.map(mapEl, {
         zoomControl: true,
         attributionControl: false,
@@ -395,13 +456,71 @@
         center: [51.505, -0.09],  // temporary center; panned on first fix
       });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 22,
-        maxNativeZoom: 19,
-      }).addTo(map);
+      L.tileLayer(TILE_URL, TILE_OPTIONS).addTo(map);
 
       this._map = map;
+
+      // Leaflet must recompute its viewport after the card is painted.
+      // rAF handles normal render; 400 ms timeout is a fallback for cards
+      // inside inactive dashboard tabs or collapsed conditional cards.
+      requestAnimationFrame(() => map.invalidateSize());
+      setTimeout(() => map.invalidateSize(), 400);
+
+      // Keep the map correct when the card is revealed later (tab switch, etc.)
+      new ResizeObserver(() => map.invalidateSize())
+        .observe(this._$('#map-wrap'));
+
       if (this._hass) this._update();  // apply buffered state
+    }
+
+    /* ── Base station marker ── */
+    _updateBaseMarker(lat, lon) {
+      if (!this._map || lat == null || lon == null || isNaN(lat) || isNaN(lon)) return;
+      if (this._baseMarker) {
+        this._baseMarker.setLatLng([lat, lon]);
+      } else {
+        this._baseMarker = L.marker([lat, lon], { icon: dockIcon(), zIndexOffset: -200 })
+          .addTo(this._map)
+          .bindTooltip('Base Station', { permanent: false, direction: 'top', offset: [0, -28] });
+      }
+    }
+
+    /* ── Zone / obstacle polygon layers ── */
+    _updatePerimeters(zones, obstacles) {
+      if (!this._map) return;
+      const key = `${zones.length}:${obstacles.length}:${(zones[0]?.id ?? '')}`;
+      if (key === this._perimeterKey) return;
+      this._perimeterKey = key;
+
+      this._zoneLayers.forEach(l => l.remove());
+      this._obstacleLayers.forEach(l => l.remove());
+      this._zoneLayers    = [];
+      this._obstacleLayers = [];
+
+      for (const zone of zones) {
+        if (!zone.polygon || zone.polygon.length < 3) continue;
+        const poly = L.polygon(zone.polygon, {
+          color:       '#34a853',
+          weight:      2,
+          fillColor:   '#34a853',
+          fillOpacity: 0.15,
+        }).addTo(this._map);
+        poly.bindTooltip(zone.name, { permanent: false, direction: 'center', className: 'stiga-tip' });
+        this._zoneLayers.push(poly);
+      }
+
+      for (const obs of obstacles) {
+        if (!obs.polygon || obs.polygon.length < 3) continue;
+        const poly = L.polygon(obs.polygon, {
+          color:       '#ea4335',
+          weight:      2,
+          fillColor:   '#ea4335',
+          fillOpacity: 0.25,
+          dashArray:   '5 4',
+        }).addTo(this._map);
+        poly.bindTooltip(obs.name || 'Obstacle', { permanent: false, direction: 'center', className: 'stiga-tip' });
+        this._obstacleLayers.push(poly);
+      }
     }
 
     /* ── Map marker update ── */
@@ -493,14 +612,29 @@
       set('.js-area',     this._state('sensor.garden_area'),    v => `${parseFloat(v).toFixed(0)}`);
       set('.js-rssi',     this._state('sensor.rssi'));
 
-      /* Map: read lat/lon/heading from device_tracker attributes */
-      const tracker = this._hass.states[
+      /* Map: read from device_tracker attributes */
+      const tracker  = this._hass.states[
         this._config.tracker || `device_tracker.${p}_location`
       ];
-      const lat     = tracker?.attributes?.latitude;
-      const lon     = tracker?.attributes?.longitude;
-      const heading = tracker?.attributes?.heading;
+      const lat      = tracker?.attributes?.latitude;
+      const lon      = tracker?.attributes?.longitude;
+      const heading  = tracker?.attributes?.heading;
+      const baseLat  = tracker?.attributes?.base_station_lat;
+      const baseLon  = tracker?.attributes?.base_station_lon;
+      const zones    = tracker?.attributes?.zone_polygons     || [];
+      const obstacles = tracker?.attributes?.obstacle_polygons || [];
+
+      this._updatePerimeters(zones, obstacles);
+      this._updateBaseMarker(baseLat, baseLon);
       this._updateMap(lat, lon, heading, cfg.color);
+    }
+
+    // HA Sections dashboard (2024.3+): controls how many columns the card spans.
+    // Falls back to no constraint in Masonry view (width set by HA grid there).
+    getGridOptions() {
+      if (!this._config?.columns) return {};
+      const cols = Math.min(12, Math.max(2, parseInt(this._config.columns, 10)));
+      return { columns: cols, min_columns: 2 };
     }
   }
 

@@ -94,6 +94,25 @@ class StigaDeviceTracker(CoordinatorEntity[StigaCoordinator], TrackerEntity):
             )
         if self.coordinator.base_latitude is None:
             attrs["note"] = "Configure base station coordinates to show GPS position on map"
+
+        info = self.coordinator.garden_info
+        if info:
+            if info.reference_lat is not None and info.reference_lon is not None:
+                attrs["base_station_lat"] = info.reference_lat
+                attrs["base_station_lon"] = info.reference_lon
+            zone_polys = [
+                {"id": z.id, "name": z.name, "polygon": z.polygon}
+                for z in info.zones if z.polygon
+            ]
+            if zone_polys:
+                attrs["zone_polygons"] = zone_polys
+            obs_polys = [
+                {"id": o.id, "name": o.name, "polygon": o.polygon}
+                for o in info.obstacles_geo if o.polygon
+            ]
+            if obs_polys:
+                attrs["obstacle_polygons"] = obs_polys
+
         return attrs
 
     @property
