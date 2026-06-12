@@ -951,9 +951,39 @@ class StigaMQTTClient:
         val &= 0xFFFFFFFF
         return val - 0x100000000 if val > 0x7FFFFFFF else val
 
+    @staticmethod
+    def _decode_pct(val: int) -> float:
+        """Decode a protobuf percentage that may be varint (0-100) or FIXED32 float bits."""
+        if val <= 1000:
+            return float(val)
+        try:
+            f = struct.unpack("<f", val.to_bytes(4, "little"))[0]
+            if 0.0 <= f <= 100.0:
+                return round(f, 1)
+        except Exception:
+            pass
+        return float(val)
+
     def _parse_status(self, payload: bytes) -> None:
         try:
             fields = decode_protobuf(payload)
+
+            _LOGGER.debug(
+                "STATUS fields present: %s",
+                {k: (f"bytes({len(v)})" if isinstance(v, bytes) else v) for k, v in fields.items()},
+            )
+            if STATUS_FIELD_MOWING in fields:
+                raw18 = fields[STATUS_FIELD_MOWING]
+                if isinstance(raw18, bytes):
+                    mow_dbg = decode_protobuf(raw18)
+                    _LOGGER.debug("Mowing sub-message (field 18): %s", mow_dbg)
+                else:
+                    _LOGGER.debug("Mowing field 18 is not bytes, type=%s value=%s", type(raw18).__name__, raw18)
+            if STATUS_FIELD_LOCATION in fields:
+                raw19 = fields[STATUS_FIELD_LOCATION]
+                if isinstance(raw19, bytes):
+                    loc_dbg = decode_protobuf(raw19)
+                    _LOGGER.debug("Location sub-message (field 19): %s", loc_dbg)
 
             if STATUS_FIELD_TYPE in fields:
                 val = fields[STATUS_FIELD_TYPE]
@@ -998,9 +1028,9 @@ class StigaMQTTClient:
                     if MOWING_FIELD_ZONE in mow and isinstance(mow[MOWING_FIELD_ZONE], int):
                         self._status.zone = mow[MOWING_FIELD_ZONE]
                     if MOWING_FIELD_ZONE_COMPLETED in mow and isinstance(mow[MOWING_FIELD_ZONE_COMPLETED], int):
-                        self._status.zone_completed = mow[MOWING_FIELD_ZONE_COMPLETED]
+                        self._status.zone_completed = self._decode_pct(mow[MOWING_FIELD_ZONE_COMPLETED])
                     if MOWING_FIELD_GARDEN_COMPLETED in mow and isinstance(mow[MOWING_FIELD_GARDEN_COMPLETED], int):
-                        self._status.garden_completed = mow[MOWING_FIELD_GARDEN_COMPLETED]
+                        self._status.garden_completed = self._decode_pct(mow[MOWING_FIELD_GARDEN_COMPLETED])
 
             if STATUS_FIELD_LOCATION in fields:
                 raw = fields[STATUS_FIELD_LOCATION]

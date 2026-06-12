@@ -50,20 +50,20 @@ SENSOR_DESCRIPTIONS: tuple[StigaSensorDescription, ...] = (
     ),
     StigaSensorDescription(
         key="garden_completed",
-        name="Garden Completion",
+        name="Garden Completed",
         icon="mdi:grass",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
     ),
     StigaSensorDescription(
         key="zone",
-        name="Current Zone",
+        name="Zone",
         icon="mdi:map-marker-radius",
         state_class=SensorStateClass.MEASUREMENT,
     ),
     StigaSensorDescription(
         key="zone_completed",
-        name="Zone Progress",
+        name="Zone Completed",
         icon="mdi:progress-check",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
