@@ -247,6 +247,14 @@ class StigaObstacleInfo:
 
 
 @dataclass
+class StigaPathInfo:
+    """Corridor/passage between mowing zones from REST GET /api/perimeters (protobuf field 2)."""
+    id: int
+    name: str
+    polygon: list = field(default_factory=list)  # [[lat, lon], ...]
+
+
+@dataclass
 class StigaGardenInfo:
     """Garden layout summary from REST GET /api/perimeters."""
     total_area_m2: float | None = None
@@ -256,6 +264,7 @@ class StigaGardenInfo:
     obstacles_area_m2: float | None = None
     zones: list = field(default_factory=list)         # list[StigaZoneInfo]
     obstacles_geo: list = field(default_factory=list) # list[StigaObstacleInfo]
+    paths_geo: list = field(default_factory=list)     # list[StigaPathInfo]
     reference_lat: float | None = None
     reference_lon: float | None = None
 
@@ -337,16 +346,16 @@ def _decode_perimeter_geometry(
     attrs: dict,
     ref_lat: float,
     ref_lon: float,
-) -> tuple[list, list]:
-    """Decode zone and obstacle polygons from raw perimeter attributes.
+) -> tuple[list, list, list]:
+    """Decode zone, path and obstacle polygons from raw perimeter attributes.
 
     Protobuf layout (reverse-engineered, see StigaAPIPerimeters.js):
-      outer field 1 = zones, field 3 = obstacles (repeated length-delimited)
+      outer field 1 = zones, field 2 = paths/corridors, field 3 = obstacles (repeated)
       each entry: field 1 = id, field 2 = points[], field 15 = name
-      anchor: field 16 (zones) / field 6 (obstacles) → { 1: eastM fixed64, 2: northM fixed64 }
+      anchor: field 16 (zones) / field 6 (obstacles/paths) → { 1: eastM fixed64, 2: northM fixed64 }
       point:  { 1: x, 2: y } zigzag-encoded signed centimetres offset from anchor
 
-    Returns (zone_list, obstacle_list) each as [{"id", "name", "polygon": [[lat, lon], ...]}, ...].
+    Returns (zone_list, path_list, obstacle_list) each as [{"id", "name", "polygon": ...}, ...].
     """
     dp_data = (attrs.get("data_points") or {}).get("data")
     if not dp_data:
@@ -419,6 +428,26 @@ def _decode_perimeter_geometry(
             if entry and len(entry["polygon"]) >= 3:
                 zone_list.append(entry)
 
+    # field 2 = paths/corridors between zones
+    # Try anchor_field=6 (same as obstacles); fall back to anchor_field=16 if no result.
+    raw_paths = outer.get(2, [])
+    path_list = []
+    for entry_bytes in raw_paths:
+        if not isinstance(entry_bytes, bytes):
+            continue
+        entry = _parse_entry(entry_bytes, anchor_field=6)
+        if not entry or len(entry["polygon"]) < 2:
+            entry = _parse_entry(entry_bytes, anchor_field=16)
+        if entry and len(entry["polygon"]) >= 2:
+            path_list.append(entry)
+    if raw_paths and not path_list:
+        _LOGGER.debug(
+            "Path entries found (%d) but none decoded — anchor field may differ. "
+            "Field keys in first entry: %s",
+            len(raw_paths),
+            list(decode_protobuf_repeated(raw_paths[0]).keys()) if isinstance(raw_paths[0], bytes) else "?",
+        )
+
     obs_list = []
     for entry_bytes in outer.get(3, []):
         if isinstance(entry_bytes, bytes):
@@ -426,7 +455,7 @@ def _decode_perimeter_geometry(
             if entry and len(entry["polygon"]) >= 3:
                 obs_list.append(entry)
 
-    return zone_list, obs_list
+    return zone_list, path_list, obs_list
 
 
 def _decode_schedule_bitmap(bitmap: bytes) -> list[StigaScheduleBlock]:
@@ -605,9 +634,10 @@ class StigaRestClient:
 
             # Decode polygon geometry
             zone_geo_list: list[dict] = []
+            path_geo_list: list[dict] = []
             obs_geo_list: list[dict] = []
             if ref_lat is not None and ref_lon is not None:
-                zone_geo_list, obs_geo_list = _decode_perimeter_geometry(attrs, ref_lat, ref_lon)
+                zone_geo_list, path_geo_list, obs_geo_list = _decode_perimeter_geometry(attrs, ref_lat, ref_lon)
                 if not zone_geo_list:
                     _LOGGER.warning(
                         "referencePosition found (%.6f, %.6f) but no zone polygons decoded — "
@@ -655,6 +685,11 @@ class StigaRestClient:
                 for o in obs_geo_list
             ]
 
+            paths_geo = [
+                StigaPathInfo(id=p["id"], name=p["name"], polygon=p["polygon"])
+                for p in path_geo_list
+            ]
+
             garden_info = StigaGardenInfo(
                 total_area_m2=preview.get("m2Area"),
                 zones_count=zones_summary.get("num"),
@@ -663,14 +698,16 @@ class StigaRestClient:
                 obstacles_area_m2=obstacles_summary.get("m2Area"),
                 zones=zones,
                 obstacles_geo=obstacles_geo,
+                paths_geo=paths_geo,
                 reference_lat=ref_lat,
                 reference_lon=ref_lon,
             )
             _LOGGER.debug(
-                "Perimeters: area=%s m², zones=%s (%s with polygons), obstacles=%s (%s with polygons)",
+                "Perimeters: area=%s m², zones=%s (%s with polygons), paths=%s, obstacles=%s (%s with polygons)",
                 garden_info.total_area_m2,
                 garden_info.zones_count,
                 len([z for z in zones if z.polygon]),
+                len(paths_geo),
                 garden_info.obstacles_count,
                 len(obstacles_geo),
             )

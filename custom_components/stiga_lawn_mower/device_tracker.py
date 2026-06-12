@@ -124,6 +124,12 @@ class StigaDeviceTracker(CoordinatorEntity[StigaCoordinator], TrackerEntity):
             ]
             if obs_polys:
                 attrs["obstacle_polygons"] = obs_polys
+            path_polys = [
+                {"id": p.id, "name": p.name, "polygon": p.polygon}
+                for p in info.paths_geo if p.polygon
+            ]
+            if path_polys:
+                attrs["path_polygons"] = path_polys
 
         return attrs
 
