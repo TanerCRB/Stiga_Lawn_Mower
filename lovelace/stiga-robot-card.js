@@ -389,6 +389,9 @@
       this._zoneLayers      = [];
       this._obstacleLayers  = [];
       this._perimeterKey    = null;
+      this._zoneData        = [];   // [{id, name, polygon}] from last perimeter update
+      this._trail           = [];   // [[lat, lon], …] accumulated during mowing
+      this._trailLayer      = null; // L.polyline
     }
 
     /* Called once by HA when the card config is parsed */
@@ -533,6 +536,7 @@
       const key = `${zones.length}:${obstacles.length}:${(zones[0]?.id ?? '')}`;
       if (key === this._perimeterKey) return;
       this._perimeterKey = key;
+      this._zoneData = zones;
 
       this._zoneLayers.forEach(l => l.remove());
       this._obstacleLayers.forEach(l => l.remove());
@@ -563,6 +567,90 @@
         poly.bindTooltip(obs.name || 'Obstacle', { permanent: false, direction: 'center', className: 'stiga-tip' });
         this._obstacleLayers.push(poly);
       }
+    }
+
+    /* ── Mowing trail (session) ── */
+    _updateTrail(lat, lon, statusVal) {
+      if (!this._map) return;
+      const MOWING = new Set(['mowing', 'cutting_border', 'navigating_to_area',
+                               'reaching_first_point', 'planning']);
+      const DOCKED  = new Set(['docked', 'charging']);
+
+      if (MOWING.has(statusVal) && lat != null && !isNaN(lat)) {
+        const last = this._trail[this._trail.length - 1];
+        const moved = !last || Math.hypot(last[0] - lat, last[1] - lon) > 5e-6;
+        if (moved) {
+          this._trail.push([lat, lon]);
+          if (this._trail.length > 1000) this._trail.shift();
+        }
+      } else if (DOCKED.has(statusVal)) {
+        this._trail = [];
+      }
+
+      if (this._trail.length >= 2) {
+        if (this._trailLayer) {
+          this._trailLayer.setLatLngs(this._trail);
+        } else {
+          this._trailLayer = L.polyline(this._trail, {
+            color: '#1a6e36', weight: 2, opacity: 0.65, smoothFactor: 1,
+          }).addTo(this._map);
+        }
+      } else if (this._trailLayer) {
+        this._trailLayer.remove();
+        this._trailLayer = null;
+      }
+    }
+
+    /* ── Zone progress gradient fill ── */
+    _updateZoneProgress(zoneNum, zonePct) {
+      if (!this._map || !this._zoneLayers.length) return;
+      // zone sensor is 1-based; match by id first, fall back to 1-based index
+      const activeIdx = this._zoneData.findIndex(z => z.id === zoneNum);
+      const idx = activeIdx >= 0 ? activeIdx : (zoneNum != null ? zoneNum - 1 : -1);
+
+      this._zoneLayers.forEach((poly, i) => {
+        const path = poly._path;
+        if (!path) return;
+        if (i === idx && zonePct != null && !isNaN(zonePct)) {
+          this._applyGradient(path, zonePct);
+        } else {
+          this._clearGradient(path);
+        }
+      });
+    }
+
+    _applyGradient(path, pct) {
+      const svg = path.ownerSVGElement;
+      if (!svg) return;
+      let defs = svg.querySelector('defs');
+      if (!defs) {
+        defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        svg.insertBefore(defs, svg.firstChild);
+      }
+      const id  = `mg-${path.getAttribute('data-leaflet-id') || Math.random().toString(36).slice(2)}`;
+      path.setAttribute('data-mg', id);
+      let grad = svg.getElementById(id);
+      if (!grad) {
+        grad = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+        grad.id = id;
+        // bottom (y=1) → top (y=0) in objectBoundingBox units
+        grad.setAttribute('x1', '0'); grad.setAttribute('y1', '1');
+        grad.setAttribute('x2', '0'); grad.setAttribute('y2', '0');
+        defs.appendChild(grad);
+      }
+      const p = Math.min(Math.max(pct, 0), 100).toFixed(1);
+      grad.innerHTML =
+        `<stop offset="0%"    stop-color="#34a853" stop-opacity="0.55"/>` +
+        `<stop offset="${p}%" stop-color="#34a853" stop-opacity="0.55"/>` +
+        `<stop offset="${p}%" stop-color="#34a853" stop-opacity="0.08"/>` +
+        `<stop offset="100%"  stop-color="#34a853" stop-opacity="0.08"/>`;
+      path.setAttribute('fill', `url(#${id})`);
+      path.style.fillOpacity = '';
+    }
+
+    _clearGradient(path) {
+      path.setAttribute('fill', '#34a853');
+      path.style.fillOpacity = '0.15';
     }
 
     /* ── Map marker update ── */
@@ -671,7 +759,12 @@
       const zones    = tracker?.attributes?.zone_polygons     || [];
       const obstacles = tracker?.attributes?.obstacle_polygons || [];
 
+      const zoneNum = parseInt(this._state('sensor.zone'));
+      const zonePct = parseFloat(this._state('sensor.zone_completed'));
+
       this._updatePerimeters(zones, obstacles);
+      this._updateZoneProgress(isNaN(zoneNum) ? null : zoneNum, isNaN(zonePct) ? null : zonePct);
+      this._updateTrail(lat, lon, statusVal);
       this._updateBaseMarker(baseLat, baseLon);
       this._updateChargingMarker(
         this._config.dock_lat,
