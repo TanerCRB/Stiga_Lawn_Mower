@@ -342,9 +342,15 @@ For full configuration options, entity overrides, and troubleshooting see the [c
 ### Via HACS (Recommended)
 
 1. Install [HACS](https://hacs.xyz/) if you haven't already.
-2. In HACS, add this repository as a **Custom Repository** (category: Integration).
-3. Download **Stiga Lawn Mower**.
-4. Restart Home Assistant.
+2. In HACS, go to **Integrations** → click the **⋮ menu** (top-right) → **Custom repositories**.
+3. Paste the repository URL and select category **Integration**:
+   ```
+   https://github.com/TanerCRB/Stiga_Lawn_Mower
+   ```
+4. Click **Add**, then find **Stiga Lawn Mower** in the list and click **Download**.
+5. Restart Home Assistant.
+
+> **Also install the Lovelace card** (optional but recommended) — see [Lovelace Card](#lovelace-card) section above.
 
 ### Manual
 
