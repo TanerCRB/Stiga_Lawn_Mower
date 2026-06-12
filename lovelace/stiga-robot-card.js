@@ -262,6 +262,22 @@
       margin-top: 3px;
     }
 
+    /* ── Next schedule row ── */
+    .schedule-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      font-size: 12px;
+      color: var(--secondary-text-color, #757575);
+      border-top: 1px solid var(--divider-color, #e0e0e0);
+    }
+    .schedule-row svg { flex-shrink: 0; }
+    .schedule-label {
+      font-weight: 600;
+      color: var(--primary-text-color, #212121);
+    }
+
     /* ── Action buttons ── */
     .actions {
       display: flex;
@@ -364,6 +380,13 @@
         <div class="stat-value js-rssi">—</div>
         <div class="stat-label">RSSI dBm</div>
       </div>
+    </div>
+
+    <div class="schedule-row js-schedule-row" style="display:none">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" opacity=".55">
+        <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm.5 5v5.25l4.5 2.67-.75 1.23L11 13V7h1.5z"/>
+      </svg>
+      <span class="js-schedule-text"></span>
     </div>
 
     <div class="actions">
@@ -653,6 +676,47 @@
       path.style.fillOpacity = '0.15';
     }
 
+    /* ── Next schedule window ── */
+    _updateNextSchedule(calState, startTime, endTime) {
+      const row = this._$('.js-schedule-row');
+      const txt = this._$('.js-schedule-text');
+      if (!row || !txt) return;
+
+      if (!startTime) { row.style.display = 'none'; return; }
+
+      // HA returns local-time strings "2026-06-12 08:00:00" — parse as local
+      const parseLocal = s => {
+        const [date, time] = s.split(' ');
+        const [y, mo, d]   = date.split('-').map(Number);
+        const [h, mi]      = time.split(':').map(Number);
+        return new Date(y, mo - 1, d, h, mi);
+      };
+
+      const start = parseLocal(startTime);
+      const end   = endTime ? parseLocal(endTime) : null;
+      if (isNaN(start)) { row.style.display = 'none'; return; }
+
+      const now      = new Date();
+      const today    = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const tomorrow = new Date(today.getTime() + 864e5);
+      const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+
+      const dayLabel = startDay.getTime() === today.getTime()    ? 'Today'
+                     : startDay.getTime() === tomorrow.getTime() ? 'Tomorrow'
+                     : start.toLocaleDateString(undefined, { weekday: 'long' });
+      const hm = d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+      row.style.display = '';
+      if (calState === 'on') {
+        // Currently inside a scheduled window — show end time
+        txt.innerHTML = `Schedule ends: <span class="schedule-label">${dayLabel} ${end ? hm(end) : '—'}</span>`;
+      } else {
+        // Show next upcoming window
+        const range = end ? ` – ${hm(end)}` : '';
+        txt.innerHTML = `Next mowing: <span class="schedule-label">${dayLabel} ${hm(start)}${range}</span>`;
+      }
+    }
+
     /* ── Map marker update ── */
     _updateMap(lat, lon, heading, color) {
       if (!this._map) return;
@@ -761,6 +825,12 @@
 
       const zoneNum = parseInt(this._state('sensor.zone'));
       const zonePct = parseFloat(this._state('sensor.zone_completed'));
+
+      const cal       = this._hass.states[this._config.calendar || `calendar.${p}_mowing_schedule`];
+      const calState  = cal?.state;
+      const calStart  = cal?.attributes?.start_time;
+      const calEnd    = cal?.attributes?.end_time;
+      this._updateNextSchedule(calState, calStart, calEnd);
 
       this._updatePerimeters(zones, obstacles);
       this._updateZoneProgress(isNaN(zoneNum) ? null : zoneNum, isNaN(zonePct) ? null : zonePct);
